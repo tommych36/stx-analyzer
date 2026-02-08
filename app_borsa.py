@@ -17,40 +17,63 @@ st.set_page_config(
     page_title="STX Ultimate Suite", 
     page_icon="🏦", 
     layout="wide", 
-    initial_sidebar_state="collapsed"  # <--- NASCONDE LA TENDINA ALL'AVVIO
+    initial_sidebar_state="collapsed"  # Imposta lo stato iniziale a CHIUSO
 )
 
-# --- 2. CSS (FIX FRECCIA & STILE) ---
+# --- 2. CSS AVANZATO (FIX TOTALE GRAFICA) ---
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
         
-        /* Font Globale */
         html, body, [class*="css"], .stTextInput, div, span, p {
             font-family: 'JetBrains Mono', monospace !important;
         }
 
-        /* FIX SIDEBAR BUTTON (Quello che ti dava problemi) */
-        [data-testid="stSidebarCollapsedControl"] {
-            color: transparent !important; /* Nasconde la scritta 'keyboard_double...' */
-            border: none !important;
+        /* --- FIX SIDEBAR TOGGLE --- */
+        
+        /* 1. Nascondiamo il testo buggato sia quando è aperta che chiusa */
+        [data-testid="stSidebarCollapsedControl"], 
+        [data-testid="stSidebar"] button[kind="header"] {
+            font-size: 0 !important; /* Rende il testo invisibile */
+            color: transparent !important;
+            width: 40px !important;
+            height: 40px !important;
+        }
+
+        /* 2. Disegniamo la freccia DESTRA (>) quando la sidebar è CHIUSA */
+        [data-testid="stSidebarCollapsedControl"]::after {
+            content: "➤"; 
+            font-size: 24px !important;
+            color: #808080;
+            display: flex;
+            align-items: center;
+            justify_content: center;
+            width: 100%;
+            height: 100%;
         }
         
-        [data-testid="stSidebarCollapsedControl"]::after {
-            content: "➤"; /* Disegna una freccia pulita */
-            color: #808080; /* Colore Grigio */
-            font-size: 25px;
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            transition: color 0.3s;
-        }
-
         [data-testid="stSidebarCollapsedControl"]:hover::after {
-            color: #ffffff; /* Diventa bianca al passaggio del mouse */
+            color: white;
         }
 
-        /* Titoli e Stile Generale */
+        /* 3. Disegniamo la freccia SINISTRA (<) quando la sidebar è APERTA (dentro) */
+        [data-testid="stSidebar"] button[kind="header"]::after {
+            content: "◀"; 
+            font-size: 24px !important;
+            color: #808080;
+            display: flex;
+            align-items: center;
+            justify_content: center;
+            width: 100%;
+            height: 100%;
+            margin-top: -25px; /* Aggiustamento posizione */
+        }
+
+        [data-testid="stSidebar"] button[kind="header"]:hover::after {
+            color: white;
+        }
+
+        /* Stili Generali */
         .big-title {
             text-align: center; font-size: 3rem !important; font-weight: 700;
             margin-bottom: 10px; color: var(--text-color);
@@ -60,10 +83,6 @@ st.markdown("""
         }
         .stButton>button {
             width: 100%; border-radius: 10px; font-weight: bold;
-        }
-        .news-box {
-            border: 1px solid rgba(128,128,128,0.2); border-radius: 10px; 
-            padding: 15px; margin-bottom: 10px; background-color: rgba(255,255,255,0.02);
         }
     </style>
 """, unsafe_allow_html=True)
@@ -75,10 +94,10 @@ app_mode = st.sidebar.radio(
     ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v4.1\nAI + Google News + Markowitz")
+st.sidebar.info("STX Ultimate v4.2\nGraphic Fix Edition")
 
 # ==============================================================================
-# MODALITÀ 1: ANALISI SINGOLA (DEEP DIVE)
+# MODALITÀ 1: ANALISI SINGOLA
 # ==============================================================================
 if app_mode == "🔎 Analisi Singola (Deep Dive)":
     
