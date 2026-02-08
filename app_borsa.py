@@ -120,28 +120,61 @@ FUTURE_DAYS = 365
 @st.cache_data(ttl=12*3600)
 def get_ultimate_data(ticker, benchmark_ticker):
     try:
+        # 1. VALIDAZIONE INPUT
+        if not benchmark_ticker or benchmark_ticker.strip() == "":
+            benchmark_ticker = "^GSPC"
+        
+        # 2. SCARICA DATI AZIONE (Il Protagonista)
         stock = yf.download(ticker, period="max", interval="1d", progress=False)
-        if len(stock) < 300: return None, None, None, None
+        
+        # Controllo immediato se l'azione esiste
+        if stock is None or len(stock) < 300:
+            return None, None, None, None
 
-        tickers = ["^VIX", "GC=F", "CL=F", "^TNX", benchmark_ticker]
-        macro_data = yf.download(tickers, period="max", interval="1d", progress=False)['Close']
-        
+        # Pulizia Azione
         if isinstance(stock.columns, pd.MultiIndex): stock.columns = stock.columns.get_level_values(0)
-        
-        stock.index = stock.index.tz_localize(None)
-        macro_data.index = macro_data.index.tz_localize(None)
-        
+        stock.index = stock.index.tz_localize(None) # Rimuovi fuso orario
         df = stock[['Close']].rename(columns={'Close': 'Stock_Price'})
-        df = df.join(macro_data, how='left').ffill().bfill()
+
+        # 3. SCARICA MACRO STANDARD (USA) - SEPARATAMENTE
+        # Li scarichiamo uno a uno per evitare che se ne fallisce uno, falliscano tutti
+        macro_tickers = {"^VIX": "Fear_Index", "GC=F": "Gold_War", "CL=F": "Oil_Energy", "^TNX": "Rates_Inflation"}
         
-        df.rename(columns={
-            '^VIX': 'Fear_Index', 'GC=F': 'Gold_War', 'CL=F': 'Oil_Energy', 
-            '^TNX': 'Rates_Inflation', benchmark_ticker: 'General_Market'
-        }, inplace=True)
+        for symbol, name in macro_tickers.items():
+            try:
+                temp_data = yf.download(symbol, period="max", interval="1d", progress=False)
+                if isinstance(temp_data.columns, pd.MultiIndex): temp_data.columns = temp_data.columns.get_level_values(0)
+                temp_data.index = temp_data.index.tz_localize(None)
+                
+                # Unione "Left": Comanda l'azione. Se manca il macro, copiamo il dato di ieri.
+                df[name] = temp_data['Close']
+                df[name] = df[name].ffill().bfill() # Riempi i buchi
+            except:
+                df[name] = 0.0 # Se fallisce il download, metti 0 invece di rompere tutto
+
+        # 4. SCARICA BENCHMARK (Custom) - SEPARATAMENTE
+        try:
+            bench_data = yf.download(benchmark_ticker, period="max", interval="1d", progress=False)
+            if isinstance(bench_data.columns, pd.MultiIndex): bench_data.columns = bench_data.columns.get_level_values(0)
+            bench_data.index = bench_data.index.tz_localize(None)
+            
+            df['General_Market'] = bench_data['Close']
+            df['General_Market'] = df['General_Market'].ffill().bfill()
+        except:
+            # Se il benchmark fallisce (es. ticker sbagliato), usa l'azione stessa come riferimento neutro
+            df['General_Market'] = df['Stock_Price']
+
+        # 5. PULIZIA FINALE INTELLIGENTE
+        # Invece di cancellare tutto se manca una virgola, cancelliamo solo se manca il prezzo dell'azione
+        df.dropna(subset=['Stock_Price'], inplace=True)
         
-        df.dropna(inplace=True)
+        # Riempiamo eventuali buchi macro rimasti con 0 o col valore precedente
+        df.fillna(method='ffill', inplace=True)
+        df.fillna(0, inplace=True)
+
         if len(df) < 300: return None, None, None, None
 
+        # 6. CALCOLI FINALI
         df_log = np.log(df / df.shift(1)).fillna(0)
         df_log['Stock_Vol'] = df['Stock_Price'].pct_change().rolling(20).std().fillna(0)
         
@@ -158,6 +191,7 @@ def get_ultimate_data(ticker, benchmark_ticker):
         return df, df_log, recent_corr, relative_strength
 
     except Exception as e:
+        # print(f"Errore: {e}") # Debug
         return None, None, None, None
 
 @st.cache_resource(show_spinner=False)
