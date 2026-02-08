@@ -39,11 +39,11 @@ st.markdown("""
 
 # --- 3. INTERFACCIA ---
 st.markdown('<p class="big-title">STX ULTIMATE</p>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Macro-Economics + Deep History + <b>Safety Logic</b></p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Macro-Economics + Deep History + <b>Timezone Fix</b></p>', unsafe_allow_html=True)
 
 ticker_input = st.text_input(
     "Inserisci Ticker", 
-    placeholder="Es. LDO.MI, TSLA, BTC-USD, ENI.MI", 
+    placeholder="Es. STLA.MI, TSLA, BTC-USD, ENI.MI", 
     help="Analisi correllata con Oro, Petrolio, Tassi e Volatilità."
 ).upper().strip()
 
@@ -54,7 +54,7 @@ FUTURE_DAYS = 365
 @st.cache_data(ttl=12*3600)
 def get_ultimate_data(ticker):
     try:
-        # Scarica MAX dati
+        # Scarica MAX dati Azione
         stock = yf.download(ticker, period="max", interval="1d", progress=False)
         if len(stock) < 300: return None, None, None, None
 
@@ -62,20 +62,34 @@ def get_ultimate_data(ticker):
         tickers = ["^VIX", "GC=F", "CL=F", "^TNX", "^GSPC"]
         macro_data = yf.download(tickers, period="max", interval="1d", progress=False)['Close']
         
+        # Pulizia MultiIndex
         if isinstance(stock.columns, pd.MultiIndex): stock.columns = stock.columns.get_level_values(0)
         
+        # --- FIX FUSI ORARI E VACANZE (Cruciale per STLA.MI) ---
+        # 1. Rimuoviamo le informazioni sul fuso orario (rendiamo tutto "naive")
+        stock.index = stock.index.tz_localize(None)
+        macro_data.index = macro_data.index.tz_localize(None)
+        
         df = stock[['Close']].rename(columns={'Close': 'Stock_Price'})
-        df = df.join(macro_data, how='inner')
+        
+        # 2. Join "Left": Manteniamo TUTTE le date dell'azione (es. STLA.MI)
+        # Se quel giorno la borsa USA era chiusa (macro mancante), riempiamo col dato del giorno prima (ffill)
+        df = df.join(macro_data, how='left').ffill().bfill()
         
         df.rename(columns={
             '^VIX': 'Fear_Index', 'GC=F': 'Gold_War', 'CL=F': 'Oil_Energy', 
             '^TNX': 'Rates_Inflation', '^GSPC': 'General_Market'
         }, inplace=True)
+        
+        # Rimuoviamo eventuali righe rimaste vuote all'inizio
+        df.dropna(inplace=True)
 
-        # RENDIMENTI LOGARITMICI (Più sicuri per l'IA)
+        if len(df) < 300: return None, None, None, None # Doppio controllo
+
+        # RENDIMENTI LOGARITMICI
         df_log = np.log(df / df.shift(1)).fillna(0)
         
-        # Volatilità (sui prezzi reali)
+        # Volatilità
         df_log['Stock_Vol'] = df['Stock_Price'].pct_change().rolling(20).std().fillna(0)
         
         # Forza Relativa
@@ -93,16 +107,15 @@ def get_ultimate_data(ticker):
         return df, df_log, recent_corr, relative_strength
 
     except Exception as e:
+        # st.error(f"Debug Error: {e}") # Scommentare per debug
         return None, None, None, None
 
 @st.cache_resource(show_spinner=False)
 def train_ultimate_model(df_log):
-    # Training su Log Returns
     feature_cols = ['Stock_Price', 'Fear_Index', 'Gold_War', 'Oil_Energy', 'Rates_Inflation', 'General_Market']
     data_values = df_log[feature_cols].values
 
-    # Clip estremo per i dati di training (toglie i giorni assurdi tipo +20%)
-    # Questo insegna all'IA a ignorare i crolli/boom anomali
+    # Clip estremo per i dati di training
     data_values = np.clip(data_values, -0.1, 0.1) 
 
     scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -133,11 +146,10 @@ def train_ultimate_model(df_log):
 if ticker_input:
     progress_bar = st.progress(0, text="Analisi Macro e Dati Storici...")
     
-    # Nota: df_log contiene le variazioni, df_prices i prezzi reali
     df_prices, df_log, correlations, rel_strength = get_ultimate_data(ticker_input)
     
     if df_prices is None:
-        st.error("Dati insufficienti.")
+        st.error(f"Dati insufficienti per {ticker_input}. Controlla il Ticker (es. usa .MI per Milano).")
         progress_bar.empty()
     else:
         # 1. MOSTRA CORRELAZIONI
@@ -166,30 +178,19 @@ if ticker_input:
         current_batch = last_sequence.reshape((1, PREDICTION_DAYS, len(feature_cols)))
         future_log_returns = []
         
-        # Trend Macro Inerziale (ma che tende a zero nel tempo)
         recent_macro_trend = np.mean(scaled_data[-30:, 1:], axis=0) 
         
         for i in range(FUTURE_DAYS):
             pred_log_ret = model.predict(current_batch, verbose=0)[0, 0]
             
-            # --- BLOCCO DI SICUREZZA (SAFETY CLAMPS) ---
-            
-            # 1. CLIPPING: Impediamo movimenti > 5% al giorno (in scala normalizzata)
-            # Questo uccide i picchi assurdi che causano l'esplosione
+            # --- SAFETY CLAMPS ---
             pred_log_ret = np.clip(pred_log_ret, -0.05, 0.05)
-            
-            # 2. DECAY AGGRESSIVO: Più andiamo avanti, più il trend si spegne
-            # Questo curva il grafico invece di farlo andare dritto all'infinito
             decay = 0.99 ** i 
             pred_log_ret *= decay
             
             future_log_returns.append(pred_log_ret)
             
-            # 3. MACRO RETURN TO MEAN: Anche i fattori esterni (oro, tassi) tornano alla media
-            # Non assumiamo che l'oro salga per sempre
-            current_macro = recent_macro_trend * (0.95 ** i) # Decade verso 0
-            
-            # Aggiungiamo rumore per realismo
+            current_macro = recent_macro_trend * (0.95 ** i)
             noise = np.random.normal(0, 0.01, size=len(current_macro))
             new_macro_values = current_macro + noise
             
@@ -201,13 +202,12 @@ if ticker_input:
         dummy_matrix[:, 0] = future_log_returns
         future_real_log_returns = scaler.inverse_transform(dummy_matrix)[:, 0]
 
-        # Ricostruzione Prezzo (da Log Return a Prezzo)
+        # Ricostruzione Prezzo
         last_price = df_prices['Stock_Price'].iloc[-1]
         future_prices = []
         curr_p = last_price
         
         for ret in future_real_log_returns:
-            # Formula inversa del Log Return
             curr_p = curr_p * np.exp(ret)
             future_prices.append(curr_p)
             
@@ -225,7 +225,6 @@ if ticker_input:
         fig.add_trace(go.Scatter(x=past.index, y=past['Stock_Price'], mode='lines', name='Storico', line=dict(color='var(--text-color)', width=2)))
         
         # Zone Volatilità
-        # Calcoliamo soglia volatilità sui dati recenti
         vol_data = df_log['Stock_Vol'].iloc[-365:]
         high_vol = vol_data.quantile(0.95)
         
