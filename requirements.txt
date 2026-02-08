@@ -6,3 +6,4 @@ pandas_ta
 plotly
 scikit-learn
 tensorflow-cpu
+vaderSentiment
