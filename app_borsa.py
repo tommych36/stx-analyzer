@@ -13,8 +13,12 @@ from tensorflow.keras.callbacks import EarlyStopping
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # --- 1. CONFIGURAZIONE ---
-st.set_page_config(page_title="STX Ultimate Suite", page_icon="🏦", layout="wide") # Layout Wide per il portafoglio
-
+st.set_page_config(
+    page_title="STX Ultimate Suite", 
+    page_icon="🏦", 
+    layout="wide", 
+    initial_sidebar_state="collapsed"  # <--- QUESTA È LA MODIFICA
+)
 # --- 2. CSS ---
 st.markdown("""
     <style>
