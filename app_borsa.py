@@ -17,10 +17,10 @@ st.set_page_config(
     page_title="STX Ultimate Suite", 
     page_icon="🏦", 
     layout="wide", 
-    initial_sidebar_state="collapsed"  # Imposta lo stato iniziale a CHIUSO
+    initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS AVANZATO (FIX TOTALE GRAFICA) ---
+# --- 2. CSS NUCLEARE (FIX GRAFICO DEFINITIVO) ---
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
@@ -29,34 +29,41 @@ st.markdown("""
             font-family: 'JetBrains Mono', monospace !important;
         }
 
-        /* --- FIX SIDEBAR TOGGLE --- */
+        /* --- FIX SIDEBAR TOGGLE (METODO AGGRESSIVO) --- */
         
-        /* 1. Nascondiamo il testo buggato sia quando è aperta che chiusa */
-        [data-testid="stSidebarCollapsedControl"], 
+        /* 1. AZZERIAMO il bottone originale. 
+           font-size: 0 fa sparire completamente il testo 'keyboard_double_arrow...' */
+        [data-testid="stSidebarCollapsedControl"],
         [data-testid="stSidebar"] button[kind="header"] {
-            font-size: 0 !important; /* Rende il testo invisibile */
-            color: transparent !important;
-            width: 40px !important;
-            height: 40px !important;
+            font-size: 0 !important;
+            width: 50px !important;
+            height: 50px !important;
         }
 
-        /* 2. Disegniamo la freccia DESTRA (>) quando la sidebar è CHIUSA */
+        /* Nascondiamo eventuali icone SVG interne che potrebbero dare fastidio */
+        [data-testid="stSidebarCollapsedControl"] svg,
+        [data-testid="stSidebar"] button[kind="header"] svg {
+            display: none !important;
+        }
+
+        /* 2. RICOSTRUIAMO LA FRECCIA PER APRIRE (➤) */
         [data-testid="stSidebarCollapsedControl"]::after {
             content: "➤"; 
-            font-size: 24px !important;
+            font-size: 24px !important; /* Riapriamo la dimensione solo per la freccia */
             color: #808080;
             display: flex;
             align-items: center;
             justify_content: center;
             width: 100%;
             height: 100%;
+            transition: color 0.3s;
         }
         
         [data-testid="stSidebarCollapsedControl"]:hover::after {
-            color: white;
+            color: #ffffff;
         }
 
-        /* 3. Disegniamo la freccia SINISTRA (<) quando la sidebar è APERTA (dentro) */
+        /* 3. RICOSTRUIAMO LA FRECCIA PER CHIUDERE (◀) */
         [data-testid="stSidebar"] button[kind="header"]::after {
             content: "◀"; 
             font-size: 24px !important;
@@ -66,14 +73,14 @@ st.markdown("""
             justify_content: center;
             width: 100%;
             height: 100%;
-            margin-top: -25px; /* Aggiustamento posizione */
+            transition: color 0.3s;
         }
 
         [data-testid="stSidebar"] button[kind="header"]:hover::after {
-            color: white;
+            color: #ffffff;
         }
 
-        /* Stili Generali */
+        /* --- STILI GENERALI --- */
         .big-title {
             text-align: center; font-size: 3rem !important; font-weight: 700;
             margin-bottom: 10px; color: var(--text-color);
@@ -94,7 +101,7 @@ app_mode = st.sidebar.radio(
     ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v4.2\nGraphic Fix Edition")
+st.sidebar.info("STX Ultimate v4.3\nFinal GUI Fix")
 
 # ==============================================================================
 # MODALITÀ 1: ANALISI SINGOLA
