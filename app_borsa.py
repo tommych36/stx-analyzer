@@ -8,10 +8,11 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer # NUOVO CERVELLO LINGUISTICO
+# Assicurati di aver installato: pip install vaderSentiment
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # --- 1. CONFIGURAZIONE ---
-st.set_page_config(page_title="STX Ultimate Sentiment", page_icon="🧠", layout="centered")
+st.set_page_config(page_title="STX Ultimate Full", page_icon="🛡️", layout="centered")
 
 # --- 2. CSS ---
 st.markdown("""
@@ -31,17 +32,16 @@ st.markdown("""
             text-align: center; border-radius: 12px; padding: 12px; 
             border: 2px solid var(--text-color); font-weight: bold;
         }
-        .news-box {
-            border: 1px solid rgba(128,128,128,0.2); border-radius: 10px; 
-            padding: 15px; margin-bottom: 10px; background-color: rgba(255,255,255,0.02);
+        .stPlotlyChart {
+            background-color: var(--secondary-background-color); 
+            border-radius: 15px; padding: 10px; margin-top: 20px;
         }
-        .sentiment-score { font-size: 1.2rem; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 3. INTERFACCIA ---
 st.markdown('<p class="big-title">STX ULTIMATE</p>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">AI + Macro + Monte Carlo + <b>News Sentiment Analysis</b></p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">AI + Macro + Monte Carlo + News Sentiment Analysis</p>', unsafe_allow_html=True)
 
 col1, col2 = st.columns([3, 1])
 
@@ -56,125 +56,121 @@ with col2:
     benchmark_input = st.text_input(
         "Benchmark", 
         value="^GSPC", 
-        help="Asset di confronto (es. ^GSPC, ^IXIC, BTC-USD)"
+        help="Asset di confronto (es. ^GSPC, ^IXIC, FTSEMIB.MI)"
     ).upper().strip()
 
-# --- 4. MOTORE SENTIMENT (NUOVO) ---
+# --- 4. MOTORE SENTIMENT ---
 def analyze_news_sentiment(ticker):
-    """
-    Scarica le news recenti da Yahoo Finance e calcola il sentiment medio.
-    Restituisce: Score (-1 a 1), Lista News Rilevanti
-    """
     try:
         t = yf.Ticker(ticker)
         news_list = t.news
-        
-        if not news_list:
-            return 0, []
+        if not news_list: return 0, []
 
         analyzer = SentimentIntensityAnalyzer()
         total_score = 0
         analyzed_news = []
-        
-        # Parole chiave "Killer" (Eventi gravi che devono pesare di più)
         panic_words = ["war", "bankrupt", "fraud", "crash", "investigation", "crisis"]
 
-        for item in news_list[:10]: # Analizza le ultime 10 news
+        for item in news_list[:10]:
             title = item.get('title', '')
             link = item.get('link', '')
             publisher = item.get('publisher', 'Unknown')
             
-            # Analisi VADER
             vs = analyzer.polarity_scores(title)
             score = vs['compound']
             
-            # Bonus/Malus per parole chiave gravi
             if any(w in title.lower() for w in panic_words):
-                score *= 1.5 # Amplifica l'impatto negativo/positivo
+                score *= 1.5 
                 
             total_score += score
+            color = "#00ff00" if score > 0.05 else "#ff4444" if score < -0.05 else "gray"
             
-            # Determina colore per display
-            if score > 0.05: color = "#00ff00"
-            elif score < -0.05: color = "#ff4444"
-            else: color = "gray"
-            
-            analyzed_news.append({
-                'title': title,
-                'link': link,
-                'score': score,
-                'color': color,
-                'publisher': publisher
-            })
+            analyzed_news.append({'title': title, 'link': link, 'score': score, 'color': color, 'publisher': publisher})
             
         avg_sentiment = total_score / len(analyzed_news) if analyzed_news else 0
         return avg_sentiment, analyzed_news
-
-    except Exception as e:
+    except:
         return 0, []
 
-# --- 5. MOTORE IBRIDO STABILIZZATO ---
+# --- 5. MOTORE IBRIDO BLINDATO (NEW v3) ---
 PREDICTION_DAYS = 90    
 FUTURE_DAYS = 365       
 
 @st.cache_data(ttl=12*3600)
 def get_ultimate_data(ticker, benchmark_ticker):
     try:
-        # 1. VALIDAZIONE INPUT
-        if not benchmark_ticker or benchmark_ticker.strip() == "":
-            benchmark_ticker = "^GSPC"
+        # 1. SCARICA STOCK CON METODO "SICURO" (.history)
+        # Questo metodo evita i problemi di formattazione MultiIndex di yf.download
+        stock_obj = yf.Ticker(ticker)
+        stock = stock_obj.history(period="max")
         
-        # 2. SCARICA DATI AZIONE (Il Protagonista)
-        stock = yf.download(ticker, period="max", interval="1d", progress=False)
+        # Se è vuoto, proviamo a scaricare con yf.download come fallback
+        if stock.empty:
+            stock = yf.download(ticker, period="max", progress=False)
         
-        # Controllo immediato se l'azione esiste
+        # Se ancora vuoto o troppo corto, usciamo
         if stock is None or len(stock) < 300:
             return None, None, None, None
 
-        # Pulizia Azione
-        if isinstance(stock.columns, pd.MultiIndex): stock.columns = stock.columns.get_level_values(0)
-        stock.index = stock.index.tz_localize(None) # Rimuovi fuso orario
-        df = stock[['Close']].rename(columns={'Close': 'Stock_Price'})
-
-        # 3. SCARICA MACRO STANDARD (USA) - SEPARATAMENTE
-        # Li scarichiamo uno a uno per evitare che se ne fallisce uno, falliscano tutti
-        macro_tickers = {"^VIX": "Fear_Index", "GC=F": "Gold_War", "CL=F": "Oil_Energy", "^TNX": "Rates_Inflation"}
+        # Standardizzazione Indice Temporale
+        stock.index = pd.to_datetime(stock.index).tz_localize(None)
         
-        for symbol, name in macro_tickers.items():
+        # Creiamo il DataFrame principale solo con il prezzo di chiusura
+        # Usiamo 'Close' o 'Adj Close' se disponibile
+        if 'Close' in stock.columns:
+            df = stock[['Close']].copy()
+        elif 'Adj Close' in stock.columns:
+            df = stock[['Adj Close']].copy()
+        else:
+            return None, None, None, None # Colonne non trovate
+
+        df.rename(columns={df.columns[0]: 'Stock_Price'}, inplace=True)
+
+        # 2. SCARICA MACRO SINGOLARMENTE (Per non rompere tutto se uno fallisce)
+        macro_dict = {
+            "^VIX": "Fear_Index", 
+            "GC=F": "Gold_War", 
+            "CL=F": "Oil_Energy", 
+            "^TNX": "Rates_Inflation"
+        }
+        
+        for symbol, name in macro_dict.items():
             try:
-                temp_data = yf.download(symbol, period="max", interval="1d", progress=False)
-                if isinstance(temp_data.columns, pd.MultiIndex): temp_data.columns = temp_data.columns.get_level_values(0)
-                temp_data.index = temp_data.index.tz_localize(None)
-                
-                # Unione "Left": Comanda l'azione. Se manca il macro, copiamo il dato di ieri.
-                df[name] = temp_data['Close']
-                df[name] = df[name].ffill().bfill() # Riempi i buchi
+                # Scarichiamo solo l'ultimo anno se MAX fallisce, ma qui proviamo MAX
+                m_data = yf.Ticker(symbol).history(period="max")
+                m_data.index = pd.to_datetime(m_data.index).tz_localize(None)
+                # Unione "Left" (mantiene le date dello stock originale)
+                df[name] = m_data['Close']
             except:
-                df[name] = 0.0 # Se fallisce il download, metti 0 invece di rompere tutto
+                df[name] = 0.0 # Se fallisce, riempi con 0
 
-        # 4. SCARICA BENCHMARK (Custom) - SEPARATAMENTE
-        try:
-            bench_data = yf.download(benchmark_ticker, period="max", interval="1d", progress=False)
-            if isinstance(bench_data.columns, pd.MultiIndex): bench_data.columns = bench_data.columns.get_level_values(0)
-            bench_data.index = bench_data.index.tz_localize(None)
-            
-            df['General_Market'] = bench_data['Close']
-            df['General_Market'] = df['General_Market'].ffill().bfill()
-        except:
-            # Se il benchmark fallisce (es. ticker sbagliato), usa l'azione stessa come riferimento neutro
-            df['General_Market'] = df['Stock_Price']
-
-        # 5. PULIZIA FINALE INTELLIGENTE
-        # Invece di cancellare tutto se manca una virgola, cancelliamo solo se manca il prezzo dell'azione
-        df.dropna(subset=['Stock_Price'], inplace=True)
+        # 3. SCARICA BENCHMARK
+        if not benchmark_ticker: benchmark_ticker = "^GSPC"
         
-        # Riempiamo eventuali buchi macro rimasti con 0 o col valore precedente
-        df.fillna(method='ffill', inplace=True)
-        df.fillna(0, inplace=True)
+        try:
+            b_data = yf.Ticker(benchmark_ticker).history(period="max")
+            if b_data.empty: raise Exception("Empty Benchmark")
+            b_data.index = pd.to_datetime(b_data.index).tz_localize(None)
+            df['General_Market'] = b_data['Close']
+        except:
+            # Fallback intelligente: se il benchmark utente fallisce, usa S&P500
+            try:
+                b_data = yf.Ticker("^GSPC").history(period="max")
+                b_data.index = pd.to_datetime(b_data.index).tz_localize(None)
+                df['General_Market'] = b_data['Close']
+            except:
+                df['General_Market'] = df['Stock_Price'] # Fallback estremo
+
+        # 4. PULIZIA DATI (Filling Intelligente)
+        # Riempiamo i buchi dei macro (es. festività USA) con il dato del giorno prima
+        df = df.ffill().bfill()
+        
+        # Cancelliamo SOLO se manca il prezzo dello stock
+        df.dropna(subset=['Stock_Price'], inplace=True)
 
         if len(df) < 300: return None, None, None, None
 
-        # 6. CALCOLI FINALI
+        # 5. CALCOLI FINALI
         df_log = np.log(df / df.shift(1)).fillna(0)
         df_log['Stock_Vol'] = df['Stock_Price'].pct_change().rolling(20).std().fillna(0)
         
@@ -191,13 +187,16 @@ def get_ultimate_data(ticker, benchmark_ticker):
         return df, df_log, recent_corr, relative_strength
 
     except Exception as e:
-        # print(f"Errore: {e}") # Debug
+        # print(f"DEBUG ERROR: {e}") 
         return None, None, None, None
 
 @st.cache_resource(show_spinner=False)
 def train_ultimate_model(df_log):
     feature_cols = ['Stock_Price', 'Fear_Index', 'Gold_War', 'Oil_Energy', 'Rates_Inflation', 'General_Market']
-    data_values = df_log[feature_cols].values
+    
+    # Verifica che le colonne esistano (in caso di fallback estremi)
+    existing_cols = [c for c in feature_cols if c in df_log.columns]
+    data_values = df_log[existing_cols].values
     data_values = np.clip(data_values, -0.1, 0.1) 
 
     scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -222,41 +221,30 @@ def train_ultimate_model(df_log):
     model.compile(optimizer='adam', loss='mean_squared_error')
     model.fit(x_train, y_train, epochs=15, batch_size=128, verbose=0)
     
-    return model, scaler, scaled_data, feature_cols
+    return model, scaler, scaled_data, existing_cols
 
 # --- ESECUZIONE ---
 if ticker_input:
     progress_bar = st.progress(0, text="Scansione News & Dati Globali...")
     
-    # 1. ANALISI SENTIMENT (News)
+    # 1. ANALISI SENTIMENT
     sentiment_score, news_items = analyze_news_sentiment(ticker_input)
     
     # 2. ANALISI DATI
     df_prices, df_log, correlations, rel_strength = get_ultimate_data(ticker_input, benchmark_input)
     
     if df_prices is None:
-        st.error(f"Dati insufficienti per {ticker_input}.")
+        st.error(f"Dati insufficienti per {ticker_input}. Potrebbe essere un ticker non valido o delisting.")
         progress_bar.empty()
     else:
         # --- DISPLAY SENTIMENT ---
         st.markdown(f"##### 📰 News Sentiment Analysis (Ultimi articoli)")
         
-        # Interpretazione Score
-        if sentiment_score > 0.2: 
-            sent_label, sent_color = "MOLTO POSITIVO (Bullish)", "#00ff00"
-            sentiment_impact = 1.05 # +5% boost al target
-        elif sentiment_score > 0.05: 
-            sent_label, sent_color = "POSITIVO", "#90ee90"
-            sentiment_impact = 1.02
-        elif sentiment_score < -0.2: 
-            sent_label, sent_color = "MOLTO NEGATIVO (Bearish)", "#ff0000"
-            sentiment_impact = 0.95 # -5% taglio al target
-        elif sentiment_score < -0.05: 
-            sent_label, sent_color = "NEGATIVO", "#ff4444"
-            sentiment_impact = 0.98
-        else: 
-            sent_label, sent_color = "NEUTRALE", "gray"
-            sentiment_impact = 1.00
+        if sentiment_score > 0.2: sent_label, sent_color, sentiment_impact = "MOLTO POSITIVO", "#00ff00", 1.05
+        elif sentiment_score > 0.05: sent_label, sent_color, sentiment_impact = "POSITIVO", "#90ee90", 1.02
+        elif sentiment_score < -0.2: sent_label, sent_color, sentiment_impact = "MOLTO NEGATIVO", "#ff0000", 0.95
+        elif sentiment_score < -0.05: sent_label, sent_color, sentiment_impact = "NEGATIVO", "#ff4444", 0.98
+        else: sent_label, sent_color, sentiment_impact = "NEUTRALE", "gray", 1.00
 
         col_s1, col_s2 = st.columns([1, 2])
         with col_s1:
@@ -270,10 +258,9 @@ if ticker_input:
             if news_items:
                 top_news = news_items[0]
                 st.markdown(f"**Top News:** [{top_news['title']}]({top_news['link']})")
-                st.caption(f"Fonte: {top_news['publisher']} | VADER Score: {top_news['score']:.2f}")
-                st.info("L'IA correggerà la previsione matematica in base a questo sentiment.")
+                st.caption(f"Fonte: {top_news['publisher']}")
             else:
-                st.warning("Nessuna news recente trovata. L'analisi sarà puramente tecnica.")
+                st.info("Nessuna news recente rilevata.")
 
         # --- TRAINING & PREVISIONE ---
         progress_bar.progress(40, text="Training Neurale...")
@@ -293,12 +280,18 @@ if ticker_input:
             pred_log_ret *= decay
             future_log_returns.append(pred_log_ret)
             
-            current_macro = recent_macro_trend * (0.95 ** i)
-            noise = np.random.normal(0, 0.01, size=len(current_macro))
-            new_macro_values = current_macro + noise
-            new_row = np.insert(new_macro_values, 0, pred_log_ret)
+            # Simulazione Macro inerziale
+            if len(recent_macro_trend) > 0:
+                current_macro = recent_macro_trend * (0.95 ** i)
+                noise = np.random.normal(0, 0.01, size=len(current_macro))
+                new_macro_values = current_macro + noise
+                new_row = np.insert(new_macro_values, 0, pred_log_ret)
+            else:
+                new_row = [pred_log_ret] # Fallback se mancano colonne macro
+
             current_batch = np.append(current_batch[:, 1:, :], [[new_row]], axis=1)
 
+        # Inversione
         dummy_matrix = np.zeros((len(future_log_returns), len(feature_cols)))
         dummy_matrix[:, 0] = future_log_returns
         future_real_log_returns = scaler.inverse_transform(dummy_matrix)[:, 0]
@@ -307,14 +300,10 @@ if ticker_input:
         future_prices = []
         curr_p = last_price
         
-        # APPLICAZIONE SENTIMENT ALLA PREVISIONE
-        # Distribuiamo l'impatto del sentiment gradualmente nei primi 30 giorni
         daily_sentiment_drift = (sentiment_impact - 1.0) / 30 
         
         for i, ret in enumerate(future_real_log_returns):
-            # Aggiungiamo il "sentiment drift" solo per il primo mese
             extra_drift = daily_sentiment_drift if i < 30 else 0
-            
             curr_p = curr_p * np.exp(ret + extra_drift)
             future_prices.append(curr_p)
             
@@ -350,13 +339,13 @@ if ticker_input:
         </div>
         """, unsafe_allow_html=True)
 
-        # --- SEZIONE MACRO & RISK (TABS) ---
+        # --- TABS ---
         tab1, tab2, tab3 = st.tabs(["🧠 Macro Brain", "🔮 Monte Carlo", "🔗 Correlazioni"])
 
         with tab1:
             if correlations is not None:
                 corr_fig = go.Figure(go.Bar(x=correlations.index, y=correlations.values, marker_color=['#ff4444' if x < 0 else '#00ff41' for x in correlations.values]))
-                corr_fig.update_layout(title="Correlazioni Fattori Globali", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300, margin=dict(l=10,r=10,t=40,b=20))
+                corr_fig.update_layout(title="Correlazioni Fattori Globali", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300)
                 st.plotly_chart(corr_fig, use_container_width=True)
 
         with tab2:
@@ -383,18 +372,22 @@ if ticker_input:
             st.error(f"⚠️ Value at Risk (95%): Rischio massimo statistico stimato: -{loss_pct:.2f}%")
 
         with tab3:
-            if benchmark_input:
-                try:
-                    bench_data = yf.download(benchmark_input, period="max", interval="1d", progress=False)
-                    if isinstance(bench_data.columns, pd.MultiIndex): bench_data.columns = bench_data.columns.get_level_values(0)
-                    bench_data.index = bench_data.index.tz_localize(None)
-                    
-                    combined = pd.DataFrame({'Asset': df_prices['Stock_Price'].pct_change(), 'Bench': bench_data['Close'].pct_change()}).dropna()
-                    roll_corr = combined['Asset'].rolling(60).corr(combined['Bench']).dropna()
-                    
+            try:
+                # Metodo sicuro anche per il Benchmark
+                bench_ticker_clean = benchmark_input if benchmark_input else "^GSPC"
+                b_data = yf.Ticker(bench_ticker_clean).history(period="max")
+                b_data.index = pd.to_datetime(b_data.index).tz_localize(None)
+                
+                combined = pd.DataFrame({'Asset': df_prices['Stock_Price'].pct_change(), 'Bench': b_data['Close'].pct_change()}).dropna()
+                roll_corr = combined['Asset'].rolling(60).corr(combined['Bench']).dropna()
+                
+                if not roll_corr.empty:
                     fig_corr = go.Figure()
                     fig_corr.add_trace(go.Scatter(x=roll_corr.index, y=roll_corr.values, mode='lines', line=dict(color='#ff00ff', width=2)))
                     fig_corr.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=0.8, x1=1, y1=1.0, fillcolor="rgba(255,0,0,0.1)", line_width=0)
-                    fig_corr.update_layout(title=f"Rolling Correlation vs {benchmark_input}", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300)
+                    fig_corr.update_layout(title=f"Rolling Correlation vs {bench_ticker_clean}", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300)
                     st.plotly_chart(fig_corr, use_container_width=True)
-                except: st.error("Errore benchmark.")
+                else:
+                    st.info("Dati insufficienti per correlazione.")
+            except:
+                st.info("Impossibile caricare grafico correlazione.")
