@@ -61,35 +61,62 @@ with col2:
 
 # --- 4. MOTORE SENTIMENT ---
 def analyze_news_sentiment(ticker):
+    """
+    Scarica le news. TRUCCO: Se il ticker ha un punto (es. STLA.MI), 
+    cerca le news sul ticker base (STLA) per trovare articoli globali in inglese.
+    """
     try:
-        t = yf.Ticker(ticker)
+        # TRUCCO: Rimuoviamo l'estensione per le news (STLA.MI -> STLA)
+        # Questo permette di trovare le news globali in inglese che VADER capisce
+        search_ticker = ticker.split('.')[0] 
+        
+        t = yf.Ticker(search_ticker)
         news_list = t.news
-        if not news_list: return 0, []
+        
+        if not news_list:
+            return 0, []
 
         analyzer = SentimentIntensityAnalyzer()
         total_score = 0
         analyzed_news = []
-        panic_words = ["war", "bankrupt", "fraud", "crash", "investigation", "crisis"]
+        
+        # Parole chiave "Killer"
+        panic_words = ["war", "bankrupt", "fraud", "crash", "investigation", "crisis", "plunge", "collapse"]
+        hype_words = ["soar", "record", "breakthrough", "skyrocket", "jump", "surge"]
 
         for item in news_list[:10]:
             title = item.get('title', '')
             link = item.get('link', '')
             publisher = item.get('publisher', 'Unknown')
             
+            # Saltiamo le news vuote
+            if not title: continue
+
+            # Analisi VADER
             vs = analyzer.polarity_scores(title)
             score = vs['compound']
             
+            # Amplificatore di gravità
             if any(w in title.lower() for w in panic_words):
-                score *= 1.5 
+                score = -0.8 if score > -0.5 else score # Forza negativo
+            elif any(w in title.lower() for w in hype_words):
+                score = 0.8 if score < 0.5 else score # Forza positivo
                 
             total_score += score
-            color = "#00ff00" if score > 0.05 else "#ff4444" if score < -0.05 else "gray"
+            
+            # Colore
+            if score >= 0.05: color = "#00ff00"
+            elif score <= -0.05: color = "#ff4444"
+            else: color = "gray"
             
             analyzed_news.append({'title': title, 'link': link, 'score': score, 'color': color, 'publisher': publisher})
             
-        avg_sentiment = total_score / len(analyzed_news) if analyzed_news else 0
+        if not analyzed_news: return 0, []
+        
+        avg_sentiment = total_score / len(analyzed_news)
         return avg_sentiment, analyzed_news
-    except:
+
+    except Exception as e:
         return 0, []
 
 # --- 5. MOTORE IBRIDO BLINDATO (NEW v3) ---
