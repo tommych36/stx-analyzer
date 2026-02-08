@@ -8,9 +8,10 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer # NUOVO CERVELLO LINGUISTICO
 
 # --- 1. CONFIGURAZIONE ---
-st.set_page_config(page_title="STX Ultimate Full", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="STX Ultimate Sentiment", page_icon="🧠", layout="centered")
 
 # --- 2. CSS ---
 st.markdown("""
@@ -30,16 +31,17 @@ st.markdown("""
             text-align: center; border-radius: 12px; padding: 12px; 
             border: 2px solid var(--text-color); font-weight: bold;
         }
-        .stPlotlyChart {
-            background-color: var(--secondary-background-color); 
-            border-radius: 15px; padding: 10px; margin-top: 20px;
+        .news-box {
+            border: 1px solid rgba(128,128,128,0.2); border-radius: 10px; 
+            padding: 15px; margin-bottom: 10px; background-color: rgba(255,255,255,0.02);
         }
+        .sentiment-score { font-size: 1.2rem; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 3. INTERFACCIA ---
 st.markdown('<p class="big-title">STX ULTIMATE</p>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">AI + Macro + Monte Carlo + Risk Analysis</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">AI + Macro + Monte Carlo + <b>News Sentiment Analysis</b></p>', unsafe_allow_html=True)
 
 col1, col2 = st.columns([3, 1])
 
@@ -57,31 +59,79 @@ with col2:
         help="Asset di confronto (es. ^GSPC, ^IXIC, BTC-USD)"
     ).upper().strip()
 
-# --- 4. MOTORE IBRIDO STABILIZZATO ---
+# --- 4. MOTORE SENTIMENT (NUOVO) ---
+def analyze_news_sentiment(ticker):
+    """
+    Scarica le news recenti da Yahoo Finance e calcola il sentiment medio.
+    Restituisce: Score (-1 a 1), Lista News Rilevanti
+    """
+    try:
+        t = yf.Ticker(ticker)
+        news_list = t.news
+        
+        if not news_list:
+            return 0, []
+
+        analyzer = SentimentIntensityAnalyzer()
+        total_score = 0
+        analyzed_news = []
+        
+        # Parole chiave "Killer" (Eventi gravi che devono pesare di più)
+        panic_words = ["war", "bankrupt", "fraud", "crash", "investigation", "crisis"]
+
+        for item in news_list[:10]: # Analizza le ultime 10 news
+            title = item.get('title', '')
+            link = item.get('link', '')
+            publisher = item.get('publisher', 'Unknown')
+            
+            # Analisi VADER
+            vs = analyzer.polarity_scores(title)
+            score = vs['compound']
+            
+            # Bonus/Malus per parole chiave gravi
+            if any(w in title.lower() for w in panic_words):
+                score *= 1.5 # Amplifica l'impatto negativo/positivo
+                
+            total_score += score
+            
+            # Determina colore per display
+            if score > 0.05: color = "#00ff00"
+            elif score < -0.05: color = "#ff4444"
+            else: color = "gray"
+            
+            analyzed_news.append({
+                'title': title,
+                'link': link,
+                'score': score,
+                'color': color,
+                'publisher': publisher
+            })
+            
+        avg_sentiment = total_score / len(analyzed_news) if analyzed_news else 0
+        return avg_sentiment, analyzed_news
+
+    except Exception as e:
+        return 0, []
+
+# --- 5. MOTORE IBRIDO STABILIZZATO ---
 PREDICTION_DAYS = 90    
 FUTURE_DAYS = 365       
 
 @st.cache_data(ttl=12*3600)
 def get_ultimate_data(ticker, benchmark_ticker):
     try:
-        # Scarica MAX dati Azione
         stock = yf.download(ticker, period="max", interval="1d", progress=False)
         if len(stock) < 300: return None, None, None, None
 
-        # Scarica Macro
         tickers = ["^VIX", "GC=F", "CL=F", "^TNX", benchmark_ticker]
         macro_data = yf.download(tickers, period="max", interval="1d", progress=False)['Close']
         
-        # Pulizia
         if isinstance(stock.columns, pd.MultiIndex): stock.columns = stock.columns.get_level_values(0)
         
-        # FIX FUSI ORARI
         stock.index = stock.index.tz_localize(None)
         macro_data.index = macro_data.index.tz_localize(None)
         
         df = stock[['Close']].rename(columns={'Close': 'Stock_Price'})
-        
-        # Join Left + Fill
         df = df.join(macro_data, how='left').ffill().bfill()
         
         df.rename(columns={
@@ -90,16 +140,11 @@ def get_ultimate_data(ticker, benchmark_ticker):
         }, inplace=True)
         
         df.dropna(inplace=True)
-
         if len(df) < 300: return None, None, None, None
 
-        # RENDIMENTI LOGARITMICI
         df_log = np.log(df / df.shift(1)).fillna(0)
-        
-        # Volatilità
         df_log['Stock_Vol'] = df['Stock_Price'].pct_change().rolling(20).std().fillna(0)
         
-        # Forza Relativa
         try:
             market_cum = df_log['General_Market'].cumsum()
             stock_cum = df_log['Stock_Price'].cumsum()
@@ -108,7 +153,6 @@ def get_ultimate_data(ticker, benchmark_ticker):
         except:
             relative_strength = 0.0
 
-        # Correlazioni
         recent_corr = df_log.iloc[-500:].corr()['Stock_Price'].drop(['Stock_Price', 'Stock_Vol'])
 
         return df, df_log, recent_corr, relative_strength
@@ -120,7 +164,6 @@ def get_ultimate_data(ticker, benchmark_ticker):
 def train_ultimate_model(df_log):
     feature_cols = ['Stock_Price', 'Fear_Index', 'Gold_War', 'Oil_Energy', 'Rates_Inflation', 'General_Market']
     data_values = df_log[feature_cols].values
-
     data_values = np.clip(data_values, -0.1, 0.1) 
 
     scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -149,35 +192,60 @@ def train_ultimate_model(df_log):
 
 # --- ESECUZIONE ---
 if ticker_input:
-    progress_bar = st.progress(0, text="Analisi Macro e Dati Storici...")
+    progress_bar = st.progress(0, text="Scansione News & Dati Globali...")
     
+    # 1. ANALISI SENTIMENT (News)
+    sentiment_score, news_items = analyze_news_sentiment(ticker_input)
+    
+    # 2. ANALISI DATI
     df_prices, df_log, correlations, rel_strength = get_ultimate_data(ticker_input, benchmark_input)
     
     if df_prices is None:
-        st.error(f"Dati insufficienti per {ticker_input}. Controlla il Ticker.")
+        st.error(f"Dati insufficienti per {ticker_input}.")
         progress_bar.empty()
     else:
-        # 1. MOSTRA CORRELAZIONI
-        st.markdown(f"##### 🧠 Macro-Brain: Correlazioni (vs {benchmark_input})")
-        if correlations is not None:
-            corr_fig = go.Figure(go.Bar(
-                x=correlations.index, y=correlations.values,
-                marker_color=['#ff4444' if x < 0 else '#00ff41' for x in correlations.values]
-            ))
-            corr_fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                height=250, margin=dict(l=10,r=10,t=10,b=20),
-                font=dict(family="JetBrains Mono"),
-                yaxis=dict(showgrid=False)
-            )
-            st.plotly_chart(corr_fig, use_container_width=True)
+        # --- DISPLAY SENTIMENT ---
+        st.markdown(f"##### 📰 News Sentiment Analysis (Ultimi articoli)")
+        
+        # Interpretazione Score
+        if sentiment_score > 0.2: 
+            sent_label, sent_color = "MOLTO POSITIVO (Bullish)", "#00ff00"
+            sentiment_impact = 1.05 # +5% boost al target
+        elif sentiment_score > 0.05: 
+            sent_label, sent_color = "POSITIVO", "#90ee90"
+            sentiment_impact = 1.02
+        elif sentiment_score < -0.2: 
+            sent_label, sent_color = "MOLTO NEGATIVO (Bearish)", "#ff0000"
+            sentiment_impact = 0.95 # -5% taglio al target
+        elif sentiment_score < -0.05: 
+            sent_label, sent_color = "NEGATIVO", "#ff4444"
+            sentiment_impact = 0.98
+        else: 
+            sent_label, sent_color = "NEUTRALE", "gray"
+            sentiment_impact = 1.00
 
-        # 2. TRAINING
-        progress_bar.progress(40, text="Training Neurale (Log-Returns)...")
+        col_s1, col_s2 = st.columns([1, 2])
+        with col_s1:
+            st.markdown(f"""
+            <div style="text-align:center; border: 2px solid {sent_color}; padding: 10px; border-radius: 10px;">
+                <div style="font-size: 3rem;">{sentiment_score:.2f}</div>
+                <div style="color: {sent_color}; font-weight: bold;">{sent_label}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_s2:
+            if news_items:
+                top_news = news_items[0]
+                st.markdown(f"**Top News:** [{top_news['title']}]({top_news['link']})")
+                st.caption(f"Fonte: {top_news['publisher']} | VADER Score: {top_news['score']:.2f}")
+                st.info("L'IA correggerà la previsione matematica in base a questo sentiment.")
+            else:
+                st.warning("Nessuna news recente trovata. L'analisi sarà puramente tecnica.")
+
+        # --- TRAINING & PREVISIONE ---
+        progress_bar.progress(40, text="Training Neurale...")
         model, scaler, scaled_data, feature_cols = train_ultimate_model(df_log)
         
-        # 3. PROIEZIONE STABILIZZATA
-        progress_bar.progress(70, text="Simulazione Scenari (Safety ON)...")
+        progress_bar.progress(70, text="Simulazione Scenari...")
         
         last_sequence = scaled_data[-PREDICTION_DAYS:]
         current_batch = last_sequence.reshape((1, PREDICTION_DAYS, len(feature_cols)))
@@ -197,17 +265,23 @@ if ticker_input:
             new_row = np.insert(new_macro_values, 0, pred_log_ret)
             current_batch = np.append(current_batch[:, 1:, :], [[new_row]], axis=1)
 
-        # Inversione
         dummy_matrix = np.zeros((len(future_log_returns), len(feature_cols)))
         dummy_matrix[:, 0] = future_log_returns
         future_real_log_returns = scaler.inverse_transform(dummy_matrix)[:, 0]
 
-        # Ricostruzione Prezzo
         last_price = df_prices['Stock_Price'].iloc[-1]
         future_prices = []
         curr_p = last_price
-        for ret in future_real_log_returns:
-            curr_p = curr_p * np.exp(ret)
+        
+        # APPLICAZIONE SENTIMENT ALLA PREVISIONE
+        # Distribuiamo l'impatto del sentiment gradualmente nei primi 30 giorni
+        daily_sentiment_drift = (sentiment_impact - 1.0) / 30 
+        
+        for i, ret in enumerate(future_real_log_returns):
+            # Aggiungiamo il "sentiment drift" solo per il primo mese
+            extra_drift = daily_sentiment_drift if i < 30 else 0
+            
+            curr_p = curr_p * np.exp(ret + extra_drift)
             future_prices.append(curr_p)
             
         last_date = df_prices.index[-1]
@@ -216,34 +290,24 @@ if ticker_input:
         progress_bar.progress(100, text="Fatto.")
         progress_bar.empty()
 
-        # 4. GRAFICO AI
+        # --- GRAFICI ---
         fig = go.Figure()
         past = df_prices.iloc[-365:]
         fig.add_trace(go.Scatter(x=past.index, y=past['Stock_Price'], mode='lines', name='Storico', line=dict(color='var(--text-color)', width=2)))
         
         vol_data = df_log['Stock_Vol'].iloc[-365:]
         high_vol = vol_data.quantile(0.95)
-        
-        fig.add_trace(go.Scatter(
-            x=past.index,
-            y=[past['Stock_Price'].max() if v > high_vol else None for v in vol_data],
-            fill='tozeroy', fillcolor='rgba(255, 50, 50, 0.15)', mode='none', name='Alta Volatilità', hoverinfo='skip'
-        ))
+        fig.add_trace(go.Scatter(x=past.index, y=[past['Stock_Price'].max() if v > high_vol else None for v in vol_data], fill='tozeroy', fillcolor='rgba(255, 50, 50, 0.15)', mode='none', name='Alta Volatilità', hoverinfo='skip'))
 
-        fig.add_trace(go.Scatter(x=future_dates, y=future_prices, mode='lines', name='Forecast AI', line=dict(color='#0055ff', width=3)))
+        fig.add_trace(go.Scatter(x=future_dates, y=future_prices, mode='lines', name='Forecast AI (+Sentiment)', line=dict(color='#0055ff', width=3)))
         fig.add_vline(x=last_date, line_dash="dash", line_color="red")
         
-        fig.update_layout(
-            title=f"SCENARIO ULTIMATE: {ticker_input}",
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(128,128,128,0.05)',
-            font=dict(family="JetBrains Mono"), height=550
-        )
+        fig.update_layout(title=f"SCENARIO ULTIMATE: {ticker_input}", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(128,128,128,0.05)', font=dict(family="JetBrains Mono"), height=550)
         st.plotly_chart(fig, use_container_width=True)
         
-        # 5. DATI FINALI
         chg = ((future_prices[-1] - last_price) / last_price) * 100
-        if rel_strength > 0: rs_color, rs_sign = "#00ff00", "+"
-        else: rs_color, rs_sign = "#ff4444", ""
+        rs_color = "#00ff00" if rel_strength > 0 else "#ff4444"
+        rs_sign = "+" if rel_strength > 0 else ""
         
         st.markdown(f"""
         <div style="text-align:center; font-size:1.1rem; margin-bottom: 30px;">
@@ -252,110 +316,51 @@ if ticker_input:
         </div>
         """, unsafe_allow_html=True)
 
-        # --- MODULO 1: MONTE CARLO ---
-        st.subheader("🔮 Analisi Probabilistica (Stile Aladdin)")
-        st.markdown("""
-        <div style="font-size: 0.9rem; color: gray; margin-bottom: 20px;">
-            Simulazione di 1000 universi paralleli (Monte Carlo) per calcolare il rischio statistico puro.
-        </div>
-        """, unsafe_allow_html=True)
+        # --- SEZIONE MACRO & RISK (TABS) ---
+        tab1, tab2, tab3 = st.tabs(["🧠 Macro Brain", "🔮 Monte Carlo", "🔗 Correlazioni"])
 
-        log_returns = df_log['Stock_Price'] 
-        u = log_returns.mean()
-        var = log_returns.var()
-        drift = u - (0.5 * var)
-        stdev = log_returns.std()
-        t_intervals = FUTURE_DAYS
-        iterations = 1000 
-        daily_returns = np.exp(drift + stdev * np.random.normal(0, 1, (t_intervals, iterations)))
+        with tab1:
+            if correlations is not None:
+                corr_fig = go.Figure(go.Bar(x=correlations.index, y=correlations.values, marker_color=['#ff4444' if x < 0 else '#00ff41' for x in correlations.values]))
+                corr_fig.update_layout(title="Correlazioni Fattori Globali", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300, margin=dict(l=10,r=10,t=40,b=20))
+                st.plotly_chart(corr_fig, use_container_width=True)
 
-        S0 = df_prices['Stock_Price'].iloc[-1]
-        price_list = np.zeros_like(daily_returns)
-        price_list[0] = S0
-        for t in range(1, t_intervals):
-            price_list[t] = price_list[t - 1] * daily_returns[t]
+        with tab2:
+            log_returns = df_log['Stock_Price'] 
+            u, var = log_returns.mean(), log_returns.var()
+            drift, stdev = u - (0.5 * var), log_returns.std()
+            daily_returns = np.exp(drift + stdev * np.random.normal(0, 1, (FUTURE_DAYS, 1000)))
+            
+            S0 = df_prices['Stock_Price'].iloc[-1]
+            price_list = np.zeros_like(daily_returns)
+            price_list[0] = S0
+            for t in range(1, FUTURE_DAYS): price_list[t] = price_list[t - 1] * daily_returns[t]
 
-        quantile_05 = np.percentile(price_list, 5, axis=1)  
-        quantile_50 = np.percentile(price_list, 50, axis=1) 
-        quantile_95 = np.percentile(price_list, 95, axis=1) 
+            q05, q50, q95 = np.percentile(price_list, 5, axis=1), np.percentile(price_list, 50, axis=1), np.percentile(price_list, 95, axis=1)
+            
+            fig_mc = go.Figure()
+            fig_mc.add_trace(go.Scatter(x=future_dates, y=q95, mode='lines', line=dict(color='rgba(0,255,0,0.5)', width=1), name='Best Case'))
+            fig_mc.add_trace(go.Scatter(x=future_dates, y=q05, mode='lines', line=dict(color='rgba(255,0,0,0.5)', width=1), fill='tonexty', name='Worst Case'))
+            fig_mc.add_trace(go.Scatter(x=future_dates, y=q50, mode='lines', line=dict(color='white', width=2, dash='dot'), name='Median'))
+            fig_mc.update_layout(title="Monte Carlo (1000 Scenari)", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(128,128,128,0.05)', height=400)
+            st.plotly_chart(fig_mc, use_container_width=True)
+            
+            loss_pct = ((S0 - q05[-1]) / S0) * 100
+            st.error(f"⚠️ Value at Risk (95%): Rischio massimo statistico stimato: -{loss_pct:.2f}%")
 
-        fig_mc = go.Figure()
-        fig_mc.add_trace(go.Scatter(x=future_dates, y=quantile_95, mode='lines', line=dict(color='rgba(0,255,0,0.5)', width=1), name='Best Case (95%)'))
-        fig_mc.add_trace(go.Scatter(x=future_dates, y=quantile_05, mode='lines', line=dict(color='rgba(255,0,0,0.5)', width=1), fill='tonexty', fillcolor='rgba(128,128,128,0.1)', name='Worst Case (5%)'))
-        fig_mc.add_trace(go.Scatter(x=future_dates, y=quantile_50, mode='lines', line=dict(color='white', width=2, dash='dot'), name='Median Scenario'))
-
-        fig_mc.update_layout(
-            title="Monte Carlo Risk Analysis", 
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(128,128,128,0.05)',
-            font=dict(family="JetBrains Mono"), height=450,
-            yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.1)')
-        )
-        st.plotly_chart(fig_mc, use_container_width=True)
-
-        final_worst_price = quantile_05[-1]
-        potential_loss = S0 - final_worst_price
-        potential_loss_pct = (potential_loss / S0) * 100
-        st.error(f"⚠️ Value at Risk (95%): Nello scenario peggiore statistico, rischio max: -{potential_loss_pct:.2f}%")
-
-        # --- MODULO 2: ROLLING CORRELATION ---
-        if benchmark_input:
-            st.markdown("---")
-            st.subheader(f"🔗 Analisi Correlazione vs {benchmark_input}")
-
-            try:
-                # Scarica Benchmark con fix timezone
-                bench_data = yf.download(benchmark_input, period="max", interval="1d", progress=False)
-                if isinstance(bench_data.columns, pd.MultiIndex):
-                    bench_data.columns = bench_data.columns.get_level_values(0)
-                
-                bench_data.index = bench_data.index.tz_localize(None)
-                bench_data['Return'] = bench_data['Close'].pct_change()
-                
-                stock_returns = df_prices['Stock_Price'].pct_change()
-                
-                combined_df = pd.DataFrame({
-                    'Asset': stock_returns,
-                    'Benchmark': bench_data['Return']
-                }).dropna()
-
-                window_size = 60
-                rolling_corr = combined_df['Asset'].rolling(window=window_size).corr(combined_df['Benchmark']).dropna()
-
-                if not rolling_corr.empty:
-                    curr_corr = rolling_corr.iloc[-1]
-                    line_color = '#ff2b2b' if curr_corr > 0.7 else '#00ff88'
-
-                    fig_corr = go.Figure()
-                    fig_corr.add_shape(type="rect",
-                        xref="paper", yref="y",
-                        x0=0, y0=0.7, x1=1, y1=1.0,
-                        fillcolor="rgba(255, 0, 0, 0.1)", layer="below", line_width=0,
-                    )
-                    fig_corr.add_trace(go.Scatter(
-                        x=rolling_corr.index, 
-                        y=rolling_corr.values,
-                        mode='lines',
-                        name=f'Correlazione (60gg)',
-                        line=dict(color=line_color, width=2)
-                    ))
-                    fig_corr.update_layout(
-                        title=dict(text=f"Diversification Check: {curr_corr:.2f} (1.0 = Identico)", x=0.5),
-                        yaxis=dict(title="Correlazione", range=[-1.1, 1.1], showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
-                        xaxis=dict(showgrid=False),
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        font=dict(family="JetBrains Mono"),
-                        height=300,
-                        margin=dict(l=20, r=20, t=40, b=20)
-                    )
-                    st.plotly_chart(fig_corr, use_container_width=True)
-
-                    if curr_corr > 0.8:
-                        st.warning(f"⚠️ ATTENZIONE: Asset molto correlato a {benchmark_input}.")
-                    elif curr_corr < 0.3:
-                        st.success(f"✅ OTTIMO: Asset disaccoppiato da {benchmark_input}.")
-                else:
-                    st.info("Dati insufficienti per la correlazione.")
+        with tab3:
+            if benchmark_input:
+                try:
+                    bench_data = yf.download(benchmark_input, period="max", interval="1d", progress=False)
+                    if isinstance(bench_data.columns, pd.MultiIndex): bench_data.columns = bench_data.columns.get_level_values(0)
+                    bench_data.index = bench_data.index.tz_localize(None)
                     
-            except Exception as e:
-                st.error(f"Errore correlazione: {e}")
+                    combined = pd.DataFrame({'Asset': df_prices['Stock_Price'].pct_change(), 'Bench': bench_data['Close'].pct_change()}).dropna()
+                    roll_corr = combined['Asset'].rolling(60).corr(combined['Bench']).dropna()
+                    
+                    fig_corr = go.Figure()
+                    fig_corr.add_trace(go.Scatter(x=roll_corr.index, y=roll_corr.values, mode='lines', line=dict(color='#ff00ff', width=2)))
+                    fig_corr.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=0.8, x1=1, y1=1.0, fillcolor="rgba(255,0,0,0.1)", line_width=0)
+                    fig_corr.update_layout(title=f"Rolling Correlation vs {benchmark_input}", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300)
+                    st.plotly_chart(fig_corr, use_container_width=True)
+                except: st.error("Errore benchmark.")
