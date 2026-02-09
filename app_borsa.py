@@ -87,7 +87,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             panic_words = ["war", "bankrupt", "crash", "crisis", "collapse"]
             hype_words = ["soar", "record", "skyrocket", "surge", "buy"]
 
-            for entry in feed.entries[:10]:
+            for entry in feed.entries[:60]:
                 title = entry.title
                 vs = analyzer.polarity_scores(title)
                 score = vs['compound']
