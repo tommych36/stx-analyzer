@@ -159,6 +159,28 @@ def get_hrp_weights(cov, tickers):
             weights[c_items1] *= 1 - alpha
     return weights
 
+# --- NUOVA FUNZIONE DI INTERPRETAZIONE UI ---
+def interpret_metrics(sharpe, ret, vol):
+    # Sharpe
+    if sharpe >= 2.0: s_msg, s_col = "Eccellente! Il rendimento ripaga ampiamente il rischio.", "green"
+    elif sharpe >= 1.0: s_msg, s_col = "Buono. Bilanciamento rischio/rendimento solido.", "#cfcf00" # Dark Yellow
+    elif sharpe > 0: s_msg, s_col = "Accettabile, ma il rischio è elevato rispetto al guadagno.", "orange"
+    else: s_msg, s_col = "Pessimo. Non giustifica il rischio (rendimento negativo o rischio eccessivo).", "red"
+    
+    # Return
+    if ret >= 0.20: r_msg, r_col = "Molto Alto. Ottimo potenziale di crescita.", "green"
+    elif ret >= 0.10: r_msg, r_col = "Solido. In linea con la media storica azionaria.", "#cfcf00"
+    elif ret >= 0.0: r_msg, r_col = "Conservativo. Crescita lenta.", "orange"
+    else: r_msg, r_col = "Negativo. Prevista perdita.", "red"
+    
+    # Volatility
+    if vol <= 0.10: v_msg, v_col = "Bassa. Portafoglio molto stabile.", "green"
+    elif vol <= 0.20: v_msg, v_col = "Media. Oscillazioni standard di mercato.", "#cfcf00"
+    elif vol <= 0.30: v_msg, v_col = "Alta. Aspettati oscillazioni significative.", "orange"
+    else: v_msg, v_col = "Estrema. Rischio molto elevato (stile Crypto).", "red"
+    
+    return (s_msg, s_col), (r_msg, r_col), (v_msg, v_col)
+
 # --- 4. MENU LATERALE ---
 st.sidebar.title("🕹️ Pannello di Controllo")
 app_mode = st.sidebar.radio(
@@ -615,9 +637,18 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                         st.caption("Massimizza il rendimento rispetto al rischio. Tende a concentrarsi su pochi titoli vincenti.")
                         std_m, ret_m = port_perf(opt_w_m, mean_r, cov_m)
                         shp_m = (ret_m - rf_rate) / std_m
+                        
+                        # Interpretazione
+                        s_i, r_i, v_i = interpret_metrics(shp_m, ret_m, std_m)
+                        
                         st.metric("Sharpe Ratio", f"{shp_m:.2f}", delta="Rischio/Rendimento")
+                        st.markdown(f"<span style='color:{s_i[1]}; font-size:0.8rem'>{s_i[0]}</span>", unsafe_allow_html=True)
+                        
                         st.metric("Rendimento Atteso", f"{ret_m*100:.2f}%")
+                        st.markdown(f"<span style='color:{r_i[1]}; font-size:0.8rem'>{r_i[0]}</span>", unsafe_allow_html=True)
+                        
                         st.metric("Volatilità (Rischio)", f"{std_m*100:.2f}%")
+                        st.markdown(f"<span style='color:{v_i[1]}; font-size:0.8rem'>{v_i[0]}</span>", unsafe_allow_html=True)
                         
                         lbls_m = [valid_tickers[i] for i in range(num) if opt_w_m[i]>0.01]
                         vals_m = [opt_w_m[i] for i in range(num) if opt_w_m[i]>0.01]
@@ -628,9 +659,18 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                         st.caption("Usa il Machine Learning per diversificare in base alle correlazioni. Più stabile nelle crisi.")
                         std_h, ret_h = port_perf(np.array(opt_w_hrp), mean_r, cov_m)
                         shp_h = (ret_h - rf_rate) / std_h
+                        
+                        # Interpretazione
+                        s_i_h, r_i_h, v_i_h = interpret_metrics(shp_h, ret_h, std_h)
+                        
                         st.metric("Sharpe Ratio", f"{shp_h:.2f}")
+                        st.markdown(f"<span style='color:{s_i_h[1]}; font-size:0.8rem'>{s_i_h[0]}</span>", unsafe_allow_html=True)
+
                         st.metric("Rendimento Atteso", f"{ret_h*100:.2f}%")
+                        st.markdown(f"<span style='color:{r_i_h[1]}; font-size:0.8rem'>{r_i_h[0]}</span>", unsafe_allow_html=True)
+
                         st.metric("Volatilità (Rischio)", f"{std_h*100:.2f}%")
+                        st.markdown(f"<span style='color:{v_i_h[1]}; font-size:0.8rem'>{v_i_h[0]}</span>", unsafe_allow_html=True)
                         
                         lbls_h = [valid_tickers[i] for i in range(num) if opt_w_hrp[i]>0.01]
                         vals_h = [opt_w_hrp[i] for i in range(num) if opt_w_hrp[i]>0.01]
@@ -671,3 +711,18 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                     ef.add_trace(go.Scatter(x=[std_m], y=[ret_m], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='Markowitz (Max Sharpe)'))
                     ef.add_trace(go.Scatter(x=[std_h], y=[ret_h], mode='markers', marker=dict(color='cyan', size=15, symbol='diamond'), name='HRP (Robusto)'))
                     st.plotly_chart(ef, use_container_width=True)
+                    
+                    # --- EDUCATIONAL TEXT: EFFICIENT FRONTIER ---
+                    st.markdown("""
+                    <div class="explanation-box">
+                        <b>📉 Guida alla Frontiera Efficiente:</b><br>
+                        Ogni puntino colorato rappresenta un possibile portafoglio simulato casualmente.<br>
+                        <ul>
+                        <li><b>Asse Verticale (Alto/Basso):</b> Rendimento Atteso. Vogliamo stare in alto.</li>
+                        <li><b>Asse Orizzontale (Sinistra/Destra):</b> Rischio (Volatilità). Vogliamo stare a sinistra.</li>
+                        <li><b>Stella Rossa (Markowitz):</b> Il portafoglio che ha avuto il miglior rapporto rendimento/rischio nel passato. Spesso è più aggressivo.</li>
+                        <li><b>Diamante Ciano (HRP):</b> Il portafoglio costruito con l'algoritmo gerarchico. Tende a essere più stabile e "sicuro" durante i crolli di mercato.</li>
+                        </ul>
+                        La "Frontiera" è il bordo superiore sinistro della nuvola: lì si trovano i portafogli migliori (massimo rendimento per ogni livello di rischio).
+                    </div>
+                    """, unsafe_allow_html=True)
