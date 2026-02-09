@@ -91,12 +91,7 @@ st.markdown("""
             color: #31333F;
         }
         
-        /* --- NUOVO STILE LISTA NEWS (v5.3) --- */
-        .news-container {
-            max-height: 300px;
-            overflow-y: auto;
-            padding-right: 10px;
-        }
+        /* Stile News List */
         .news-item {
             padding: 8px 0;
             border-bottom: 1px solid #e0e0e0;
@@ -115,7 +110,7 @@ app_mode = st.sidebar.radio(
     ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v5.3\nNews Ranking UI")
+st.sidebar.info("STX Ultimate v5.4\nItalian Rating UI")
 
 # ==============================================================================
 # MODALITÀ 1: ANALISI SINGOLA (DEEP DIVE)
@@ -131,64 +126,49 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
     with col2: 
         benchmark_input = st.text_input("Benchmark", value="^GSPC").upper().strip()
 
-    # --- NEWS SENTIMENT (MULTI-SOURCE: Google + Yahoo) ---
+    # --- NEWS SENTIMENT (MULTI-SOURCE) ---
     def analyze_news_sentiment(ticker):
         try:
             clean_ticker = ticker.split('.')[0]
             
-            # 1. Lista fonti RSS
             rss_urls = [
                 f"https://news.google.com/rss/search?q={clean_ticker}+stock+market&hl=en-US&gl=US&ceid=US:en",
                 f"https://finance.yahoo.com/rss/headline?s={clean_ticker}"
             ]
             
             all_entries = []
-            
-            # 2. Scaricamento da tutte le fonti
             for url in rss_urls:
                 try:
                     feed = feedparser.parse(url)
                     if feed.entries:
                         all_entries.extend(feed.entries)
-                except:
-                    continue 
+                except: continue 
 
             if not all_entries: return 0, []
             
             analyzer = SentimentIntensityAnalyzer()
             total_score = 0
             analyzed_news = []
-            
-            # Set per evitare duplicati
             seen_titles = set()
             
             panic_words = ["war", "bankrupt", "fraud", "crash", "crisis", "collapse"]
             hype_words = ["soar", "record", "skyrocket", "surge", "buy", "beats"]
 
-            # 3. Analisi (Limitata a 60 totali)
             for entry in all_entries[:60]: 
                 title = entry.title
-                
-                # Salta duplicati
                 if title in seen_titles: continue
                 seen_titles.add(title)
 
                 link = entry.link
-                # Gestione Fonte
-                if 'source' in entry:
-                    publisher = entry.source.title 
-                elif 'yfinance' in link or 'yahoo' in link:
-                    publisher = "Yahoo Finance"
-                else:
-                    publisher = "News Source"
+                if 'source' in entry: publisher = entry.source.title 
+                elif 'yfinance' in link or 'yahoo' in link: publisher = "Yahoo Finance"
+                else: publisher = "News Source"
                 
                 vs = analyzer.polarity_scores(title)
                 score = vs['compound']
                 
-                if any(w in title.lower() for w in panic_words) and score > -0.5: 
-                    score = -0.6
-                if any(w in title.lower() for w in hype_words) and score < 0.5: 
-                    score = 0.6
+                if any(w in title.lower() for w in panic_words) and score > -0.5: score = -0.6
+                if any(w in title.lower() for w in hype_words) and score < 0.5: score = 0.6
                 
                 total_score += score
                 
@@ -199,7 +179,6 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 analyzed_news.append({'title': title, 'link': link, 'score': score, 'color': color, 'publisher': publisher})
                 
             if not analyzed_news: return 0, []
-                
             return (total_score / len(analyzed_news) if analyzed_news else 0), analyzed_news
         except: return 0, []
 
@@ -291,8 +270,14 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         if df_p is None:
             st.error("Dati insufficienti."); progress.empty()
         else:
-            # --- SEZIONE NEWS UI AGGIORNATA (v5.3) ---
+            # --- SEZIONE NEWS UI AGGIORNATA (v5.4 - Rating 0-10) ---
             st.markdown("##### 📰 News Sentiment Analysis")
+            
+            # Calcolo conversione da -1/+1 a 0-10 per la UI
+            # Formula: ((Score + 1) / 2) * 10
+            # Esempio: -1 diventa 0, 0 diventa 5, +1 diventa 10
+            vote_display = ((s_score + 1) / 2) * 10
+            
             if s_score > 0.2: l, c, imp = "BULLISH", "#00ff00", 1.05
             elif s_score > 0.05: l, c, imp = "POSITIVO", "#90ee90", 1.02
             elif s_score < -0.2: l, c, imp = "BEARISH", "#ff0000", 0.95
@@ -301,20 +286,22 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             
             c1, c2 = st.columns([1, 2])
             
-            # Score Gigante
+            # Score Gigante (CONVERTITO IN 0-10)
             with c1: 
-                st.markdown(f"<div style='text-align:center; border:2px solid {c}; padding:10px; border-radius:10px; margin-bottom:10px;'><div style='font-size:3rem;'>{s_score:.2f}</div><div style='color:{c}; font-weight:bold;'>{l}</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center; border:2px solid {c}; padding:10px; border-radius:10px; margin-bottom:10px;'><div style='font-size:3rem;'>{vote_display:.1f}<span style='font-size:1.5rem; color:gray;'>/10</span></div><div style='color:{c}; font-weight:bold;'>{l}</div></div>", unsafe_allow_html=True)
             
-            # Lista Classificata con Scroll
+            # Lista Classificata (Ranking)
             with c2:
                 if news:
-                    st.caption("🔥 Top Articoli (Ranking per Impatto):")
-                    # Ordina per "forza" del sentiment (assoluto)
+                    st.caption("🔥 Top Articoli (Voto d'Impatto 0-10):")
+                    # Ordina per forza assoluta del sentiment
                     sorted_news = sorted(news, key=lambda x: abs(x['score']), reverse=True)
                     
                     with st.container(height=200):
                         for n in sorted_news:
-                            # Icona stato
+                            # Conversione anche per i singoli articoli
+                            item_vote = ((n['score'] + 1) / 2) * 10
+                            
                             if n['score'] >= 0.05: icon = "🟢"
                             elif n['score'] <= -0.05: icon = "🔴"
                             else: icon = "⚪"
@@ -323,7 +310,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                             <div class="news-item">
                                 <div>{icon} <a href="{n['link']}" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold;">{n['title']}</a></div>
                                 <div class="news-meta">
-                                    Fonte: {n['publisher']} | Impact: <b>{n['score']:.2f}</b>
+                                    Fonte: {n['publisher']} | Voto: <b>{item_vote:.1f}/10</b>
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -396,7 +383,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 <br>
                 <b>Perché?</b><br>
                 1. <b>Analisi Tecnica AI:</b> Il modello ha rilevato pattern storici che suggeriscono questa direzione.<br>
-                2. <b>Analisi Fondamentale News:</b> Il sentiment attuale delle notizie ({s_score:.2f}) <b>{news_factor}</b> questa previsione.
+                2. <b>Analisi Fondamentale News:</b> Il sentiment attuale (Voto: {vote_display:.1f}/10) <b>{news_factor}</b> questa previsione.
             </div>
             """, unsafe_allow_html=True)
             
