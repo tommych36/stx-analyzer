@@ -159,11 +159,11 @@ def get_hrp_weights(cov, tickers):
             weights[c_items1] *= 1 - alpha
     return weights
 
-# --- NUOVA FUNZIONE DI INTERPRETAZIONE UI ---
+# --- FUNZIONE INTERPRETAZIONE UI ---
 def interpret_metrics(sharpe, ret, vol):
     # Sharpe
     if sharpe >= 2.0: s_msg, s_col = "Eccellente! Il rendimento ripaga ampiamente il rischio.", "green"
-    elif sharpe >= 1.0: s_msg, s_col = "Buono. Bilanciamento rischio/rendimento solido.", "#cfcf00" # Dark Yellow
+    elif sharpe >= 1.0: s_msg, s_col = "Buono. Bilanciamento rischio/rendimento solido.", "#cfcf00"
     elif sharpe > 0: s_msg, s_col = "Accettabile, ma il rischio è elevato rispetto al guadagno.", "orange"
     else: s_msg, s_col = "Pessimo. Non giustifica il rischio (rendimento negativo o rischio eccessivo).", "red"
     
@@ -229,7 +229,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             analyzed_news = []
             seen_titles = set()
             
-            # Keywords (in inglese perché le fonti sono spesso internazionali)
+            # Keywords
             panic_words = ["war", "bankrupt", "fraud", "crash", "crisis", "collapse"]
             hype_words = ["soar", "record", "skyrocket", "surge", "buy", "beats"]
 
@@ -687,9 +687,38 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # --- HEATMAP RESTORED (FIX) ---
+                    # --- HEATMAP RESTORED (FIX + UI IMPROVEMENT) ---
                     st.subheader("Correlazione Asset (Heatmap)")
-                    st.plotly_chart(go.Figure(data=go.Heatmap(z=rets.corr().values, x=valid_tickers, y=valid_tickers, colorscale='RdBu', zmin=-1, zmax=1)), use_container_width=True)
+                    
+                    # Create heatmap with explicit colorbar text
+                    fig_corr = go.Figure(data=go.Heatmap(
+                        z=rets.corr().values,
+                        x=valid_tickers,
+                        y=valid_tickers,
+                        colorscale='RdBu',
+                        zmin=-1,
+                        zmax=1,
+                        colorbar=dict(
+                            title='Livello',
+                            tickvals=[-1, -0.5, 0, 0.5, 1],
+                            ticktext=['Inversa (-1)', 'Negativa', 'Nulla (0)', 'Positiva', 'Identica (+1)']
+                        )
+                    ))
+                    st.plotly_chart(fig_corr, use_container_width=True)
+                    
+                    # Added explanation box below heatmap
+                    st.markdown("""
+                    <div class="explanation-box">
+                        <b>🔗 Come leggere la Heatmap:</b><br>
+                        Questa mappa ti aiuta a capire se i tuoi asset sono troppo simili tra loro.<br>
+                        <ul>
+                        <li><b>Blu Scuro (+1):</b> I titoli si muovono insieme. Se uno sale, l'altro sale. (Poca diversificazione).</li>
+                        <li><b>Bianco (0):</b> I titoli si ignorano. Non c'è legame.</li>
+                        <li><b>Rosso Scuro (-1):</b> I titoli si muovono all'opposto. Se uno sale, l'altro scende. (Ottimo per proteggersi/Hedge).</li>
+                        </ul>
+                        <i>Suggerimento: Un buon portafoglio HRP cerca di evitare troppi quadrati blu scuro tutti insieme.</i>
+                    </div>
+                    """, unsafe_allow_html=True)
 
                     # --- FRONTIERA EFFICIENTE ---
                     st.subheader("Frontiera Efficiente (Simulazione)")
