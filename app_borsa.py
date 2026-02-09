@@ -120,24 +120,59 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         benchmark_input = st.text_input("Benchmark", value="^GSPC").upper().strip()
 
     # --- NEWS SENTIMENT ---
+    # --- NEWS SENTIMENT (MULTI-SOURCE) ---
     def analyze_news_sentiment(ticker):
         try:
             clean_ticker = ticker.split('.')[0]
-            rss_url = f"https://news.google.com/rss/search?q={clean_ticker}+stock+market&hl=en-US&gl=US&ceid=US:en"
-            feed = feedparser.parse(rss_url)
-            if not feed.entries: return 0, []
+            
+            # 1. LISTA DELLE FONTI RSS
+            # Aggiungiamo Yahoo Finance oltre a Google News
+            rss_urls = [
+                f"https://news.google.com/rss/search?q={clean_ticker}+stock+market&hl=en-US&gl=US&ceid=US:en",
+                f"https://finance.yahoo.com/rss/headline?s={clean_ticker}"
+            ]
+            
+            all_entries = []
+            
+            # 2. SCARICAMENTO E UNIONE
+            for url in rss_urls:
+                try:
+                    feed = feedparser.parse(url)
+                    if feed.entries:
+                        all_entries.extend(feed.entries)
+                except:
+                    continue # Se una fonte fallisce, passa alla prossima
+
+            if not all_entries: return 0, []
             
             analyzer = SentimentIntensityAnalyzer()
             total_score = 0
             analyzed_news = []
             
+            # Dizionario per evitare duplicati (titoli identici)
+            seen_titles = set()
+            
             panic_words = ["war", "bankrupt", "fraud", "crash", "crisis", "collapse"]
             hype_words = ["soar", "record", "skyrocket", "surge", "buy", "beats"]
 
-            for entry in feed.entries[:60]: # Analizza 60 news
+            # 3. ANALISI SU TUTTE LE NEWS TROVATE (LIMITATE A 60)
+            # Ordiniamo per data (se disponibile) o prendiamo le prime trovate
+            for entry in all_entries[:60]: 
                 title = entry.title
+                
+                # Salta se abbiamo già analizzato questo titolo (duplicato)
+                if title in seen_titles:
+                    continue
+                seen_titles.add(title)
+
                 link = entry.link
-                publisher = entry.source.title if 'source' in entry else "Google News"
+                # Gestione publisher più robusta
+                if 'source' in entry:
+                    publisher = entry.source.title 
+                elif 'yfinance' in link or 'yahoo' in link:
+                    publisher = "Yahoo Finance"
+                else:
+                    publisher = "Google News"
                 
                 vs = analyzer.polarity_scores(title)
                 score = vs['compound']
@@ -155,9 +190,11 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 
                 analyzed_news.append({'title': title, 'link': link, 'score': score, 'color': color, 'publisher': publisher})
                 
+            # Evitiamo divisione per zero se tutte le news erano duplicate
+            if not analyzed_news: return 0, []
+                
             return (total_score / len(analyzed_news) if analyzed_news else 0), analyzed_news
         except: return 0, []
-
     # --- DATA FETCHING ---
     @st.cache_data(ttl=12*3600)
     def get_single_data(ticker, benchmark_ticker):
