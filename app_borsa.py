@@ -81,6 +81,18 @@ st.markdown("""
             color: gray; 
             margin-bottom: 30px; 
         }
+
+        /* NUOVO STILE PER I BOX ESPLICATIVI (Aggiunto per v5.1) */
+        .explanation-box {
+            background-color: #f0f2f6; /* Grigio chiarissimo standard di Streamlit */
+            border-left: 5px solid #0055ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            margin-bottom: 25px;
+            font-size: 0.95rem;
+            color: #31333F;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -91,7 +103,7 @@ app_mode = st.sidebar.radio(
     ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v5.0\nFull Integral Code")
+st.sidebar.info("STX Ultimate v5.1\nEducational Edition")
 
 # ==============================================================================
 # MODALITÀ 1: ANALISI SINGOLA (DEEP DIVE)
@@ -122,7 +134,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             panic_words = ["war", "bankrupt", "fraud", "crash", "crisis", "collapse"]
             hype_words = ["soar", "record", "skyrocket", "surge", "buy", "beats"]
 
-            for entry in feed.entries[:20]: # Analizza 20 news
+            for entry in feed.entries[:60]: # Analizza 60 news
                 title = entry.title
                 link = entry.link
                 publisher = entry.source.title if 'source' in entry else "Google News"
@@ -299,7 +311,31 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             fig.add_trace(go.Scatter(x=dates, y=fut_p, name='Forecast AI', line=dict(color='#0055ff', width=3)))
             st.plotly_chart(fig, use_container_width=True)
             
-            # Stats
+            # --- AGGIUNTA v5.1: SPIEGAZIONE PREVISIONE ---
+            final_p = fut_p[-1]
+            start_p = df_p['Stock_Price'].iloc[-1]
+            perc_chg = ((final_p - start_p) / start_p) * 100
+            
+            # Logica per il testo
+            if perc_chg > 2: trend_desc = "POSITIVO (Rialzista)"
+            elif perc_chg < -2: trend_desc = "NEGATIVO (Ribassista)"
+            else: trend_desc = "NEUTRO (Laterale)"
+            
+            news_factor = "supporta" if (s_score > 0 and perc_chg > 0) or (s_score < 0 and perc_chg < 0) else "contrasta"
+            
+            st.markdown(f"""
+            <div class="explanation-box">
+                <b>📊 Interpretazione Previsione:</b><br>
+                L'Intelligenza Artificiale stima che tra un anno il prezzo potrebbe essere <b>{final_p:.2f}</b>, indicando un trend <b>{trend_desc}</b>.<br>
+                <br>
+                <b>Perché?</b><br>
+                1. <b>Analisi Tecnica AI:</b> Il modello ha rilevato pattern storici che suggeriscono questa direzione.<br>
+                2. <b>Analisi Fondamentale News:</b> Il sentiment attuale delle notizie ({s_score:.2f}) <b>{news_factor}</b> questa previsione.
+            </div>
+            """, unsafe_allow_html=True)
+            # ---------------------------------------------
+            
+            # Stats text
             chg = ((fut_p[-1] - df_p['Stock_Price'].iloc[-1]) / df_p['Stock_Price'].iloc[-1])*100
             rc = "#00ff00" if rs > 0 else "#ff4444"
             rsign = "+" if rs > 0 else ""
@@ -311,6 +347,34 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             with t1: 
                 f_corr = go.Figure(go.Bar(x=corr.index, y=corr.values, marker_color=['red' if x<0 else 'green' for x in corr.values]))
                 st.plotly_chart(f_corr, use_container_width=True)
+                
+                # --- AGGIUNTA v5.1: SPIEGAZIONE MACRO ---
+                expl_macro = []
+                if 'Fear_Index' in corr.index:
+                    rel = "INVERSA" if corr['Fear_Index'] < 0 else "DIRETTA"
+                    meaning = "il titolo tende a SCENDERE quando nel mercato c'è paura (VIX alto)." if corr['Fear_Index'] < 0 else "il titolo sale insieme alla paura (asset rifugio?)."
+                    expl_macro.append(f"• <b>Paura (VIX):</b> Relazione {rel}. Storicamente {meaning}")
+                    
+                if 'Gold_War' in corr.index:
+                     rel = "DIRETTA" if corr['Gold_War'] > 0 else "INVERSA"
+                     meaning = "il titolo segue l'andamento dell'oro (bene rifugio)." if corr['Gold_War'] > 0 else "il titolo soffre quando i capitali si spostano sull'oro."
+                     expl_macro.append(f"• <b>Oro & Geopolitica:</b> Relazione {rel}. {meaning}")
+                
+                if 'Rates_Inflation' in corr.index:
+                    rel = "INVERSA" if corr['Rates_Inflation'] < 0 else "DIRETTA"
+                    meaning = "il titolo soffre l'aumento dei tassi d'interesse (costo del denaro)." if corr['Rates_Inflation'] < 0 else "il titolo beneficia dei tassi alti (es. settore bancario)."
+                    expl_macro.append(f"• <b>Tassi d'Interesse:</b> Relazione {rel}. {meaning}")
+
+                macro_text = "<br>".join(expl_macro)
+                st.markdown(f"""
+                <div class="explanation-box">
+                    <b>🧠 Spiegazione Macroeconomica:</b><br>
+                    Questo grafico ti dice "chi comanda" il prezzo dell'azione oltre alla speculazione.<br>
+                    <br>
+                    {macro_text}
+                </div>
+                """, unsafe_allow_html=True)
+                # ----------------------------------------
             
             with t2:
                 # Monte Carlo Completo (Ripristinato)
@@ -330,6 +394,20 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 # VaR Risk (Ripristinato)
                 loss = ((df_p['Stock_Price'].iloc[-1] - np.percentile(paths, 5, axis=1)[-1]) / df_p['Stock_Price'].iloc[-1])*100
                 st.error(f"⚠️ Value at Risk (95%): Nello scenario peggiore statistico, rischio max: -{loss:.2f}%")
+                
+                # --- AGGIUNTA v5.1: SPIEGAZIONE MONTE CARLO ---
+                st.markdown(f"""
+                <div class="explanation-box">
+                    <b>🎲 Interpretazione del Rischio (Monte Carlo):</b><br>
+                    Abbiamo simulato 1000 universi paralleli per il prossimo anno.<br>
+                    <ul>
+                    <li><b>Linea Verde (Best Case):</b> Se tutto va benissimo (top 5% degli scenari).</li>
+                    <li><b>Linea Rossa (Worst Case):</b> Se tutto va male (peggior 5% degli scenari).</li>
+                    <li><b>Value at Risk (VaR):</b> Quel numero rosso sopra indica il rischio statistico. Esempio: se è -20%, significa che c'è il 95% di probabilità che NON perderai più del 20%. È la tua "rete di sicurezza" teorica.</li>
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
+                # ----------------------------------------------
 
             with t3:
                 try:
@@ -340,6 +418,27 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                     roll = comb['A'].rolling(60).corr(comb['B']).dropna()
                     # Grafico standard per sfondo bianco
                     st.line_chart(roll)
+                    
+                    # --- AGGIUNTA v5.1: SPIEGAZIONE CORRELAZIONI ---
+                    last_c = roll.iloc[-1]
+                    if last_c > 0.7: c_type = "MOLTO FORTE"
+                    elif last_c > 0.3: c_type = "MODERATA"
+                    elif last_c > -0.3: c_type = "NULLA (Decorrelato)"
+                    else: c_type = "INVERSA (Copertura)"
+                    
+                    st.markdown(f"""
+                    <div class="explanation-box">
+                        <b>🔗 Guida alle Correlazioni:</b><br>
+                        Questo grafico mostra quanto il titolo "copia" i movimenti del mercato ({bt}).<br>
+                        <ul>
+                        <li><b>+1.0 (Max):</b> Si muovono identici.</li>
+                        <li><b>0.0 (Zero):</b> Il titolo ignora il mercato.</li>
+                        <li><b>-1.0 (Opposto):</b> Se il mercato sale, il titolo scende.</li>
+                        </ul>
+                        Attualmente la correlazione è <b>{last_c:.2f}</b>, quindi il legame è <b>{c_type}</b>.
+                    </div>
+                    """, unsafe_allow_html=True)
+                    # ----------------------------------------------
                 except: st.info("No correlation.")
 
 # ==============================================================================
@@ -355,7 +454,11 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
     
     c_btn, c_risk = st.columns([1, 2])
     with c_btn: run_opt = st.button("🚀 Ottimizza", type="primary")
-    with c_risk: rf_rate = st.number_input("Risk-Free Rate", 0.04, step=0.01)
+    with c_risk: 
+        rf_rate = st.number_input("Risk-Free Rate", 0.04, step=0.01)
+        # --- AGGIUNTA v5.1: SPIEGAZIONE RISK FREE ---
+        st.caption("ℹ️ Inserisci il rendimento di un titolo di stato sicuro (es. BTP o Treasury a 10 anni). Serve come base per calcolare quanto 'rischio' vale la pena correre.")
+        # --------------------------------------------
 
     def port_perf(weights, mean_ret, cov):
         ret = np.sum(mean_ret * weights) * 252
@@ -414,7 +517,7 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                     with c_hm:
                         st.plotly_chart(go.Figure(data=go.Heatmap(z=rets.corr().values, x=valid_tickers, y=valid_tickers, colorscale='RdBu', zmin=-1, zmax=1)), use_container_width=True)
                     
-                    # --- QUESTA È LA PARTE CHE AVEVO TOLTO E ORA RIPRISTINO ---
+                    # --- RIPRISTINO FRONTIERA EFFICIENTE ---
                     st.subheader("Frontiera Efficiente (Simulazione)")
                     n_sim = 2000
                     w_all = np.zeros((n_sim, num))
@@ -430,9 +533,7 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                         s_arr[i] = (r_arr[i] - rf_rate) / v_arr[i]
                         
                     ef = go.Figure()
-                    # Punti Simulazione
                     ef.add_trace(go.Scatter(x=v_arr, y=r_arr, mode='markers', marker=dict(color=s_arr, colorscale='Viridis', showscale=True), name='Simulazioni'))
-                    # Stella Ottimale
                     ef.add_trace(go.Scatter(x=[opt_std], y=[opt_ret], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='OTTIMO'))
                     st.plotly_chart(ef, use_container_width=True)
-                    # -----------------------------------------------------------
+                    # ---------------------------------------
