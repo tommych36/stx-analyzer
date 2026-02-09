@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import feedparser
 import scipy.optimize as sco
 import scipy.cluster.hierarchy as sch # IMPORT NECESSARIO PER HRP
-# NOTA: Abbiamo rimosso 'import shap' da qui per evitare conflitti con TensorFlow durante il training
+# NOTA: Shap importato solo localmente per evitare conflitti iniziali
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout, Input
@@ -189,7 +189,7 @@ app_mode = st.sidebar.radio(
     ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v6.4\nSafe XAI Edition (ITA)")
+st.sidebar.info("STX Ultimate v6.5\nCache Fix (ITA)")
 
 # ==============================================================================
 # MODALITÀ 1: ANALISI SINGOLA (DEEP DIVE)
@@ -313,9 +313,9 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             return df, df_log, corr, rs
         except: return None, None, None, None
 
-    # --- LSTM MODEL (SAFE) ---
+    # --- LSTM MODEL (RINOMINATA PER RESET CACHE) ---
     @st.cache_resource(show_spinner=False)
-    def train_lstm(df_log):
+    def train_lstm_xai(df_log): # <-- Rinomina funzione per invalidare vecchia cache a 4 elementi
         cols = ['Stock_Price', 'Fear_Index', 'Gold_War', 'Oil_Energy', 'Rates_Inflation', 'General_Market']
         exist = [c for c in cols if c in df_log.columns]
         data = np.clip(df_log[exist].values, -0.1, 0.1)
@@ -399,8 +399,8 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
 
             # AI Training
             progress.progress(40, "Addestramento AI...")
-            # Qui catturiamo X_train
-            model, scaler, scaled, cols, X_train = train_lstm(df_l)
+            # Qui catturiamo X_train chiamando la nuova funzione rinominata
+            model, scaler, scaled, cols, X_train = train_lstm_xai(df_l)
             
             # Simulation
             progress.progress(70, "Simulazione...")
@@ -478,7 +478,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             
             # FALLBACK LOGIC: Se SHAP fallisce, usiamo un metodo euristico basato su correlazione e peso recente
             try:
-                import shap # Importiamo QUI per evitare crash TensorFlow all'avvio
+                import shap # Importiamo QUI per evitare conflitti (Lazy Import)
                 
                 # 1. Prepariamo un piccolo campione di background
                 background_idx = np.random.choice(X_train.shape[0], 15, replace=False)
@@ -507,12 +507,9 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 feature_importance = np.sum(vals_3d[0], axis=0)
                 
             except Exception as e:
-                # FALLBACK: Se SHAP fallisce (es. incompatibilità), usiamo un proxy matematico
-                # Usiamo la correlazione degli ultimi 90gg come proxy dell'importanza
-                # Questo evita che l'app crashi e fornisce comunque info utili
+                # FALLBACK: Se SHAP fallisce, usiamo la correlazione degli ultimi 90gg come proxy
                 feature_importance = df_l[cols].iloc[-90:].corrwith(df_l['Stock_Price'].iloc[-90:]).fillna(0).values
-                # Normalizziamo per dare un senso di "peso"
-                feature_importance = feature_importance * 0.1 # Scaling arbitrario per grafico
+                feature_importance = feature_importance * 0.1 # Scaling arbitrario
                 
             # 7. Creazione Grafico (Comune a SHAP e Fallback)
             xai_df = pd.DataFrame({
