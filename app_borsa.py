@@ -6,6 +6,7 @@ import datetime
 import plotly.graph_objects as go
 import feedparser
 import scipy.optimize as sco
+import scipy.cluster.hierarchy as sch # IMPORT NECESSARIO PER HRP
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout, Input
@@ -79,7 +80,7 @@ st.markdown("""
             margin-bottom: 30px; 
         }
         
-        /* Box Esplicativi */
+        /* Box Educativi */
         .explanation-box {
             background-color: #f0f2f6; 
             border-left: 5px solid #0055ff;
@@ -91,7 +92,7 @@ st.markdown("""
             color: #31333F;
         }
         
-        /* Stile News List */
+        /* Stile Lista News */
         .news-item {
             padding: 8px 0;
             border-bottom: 1px solid #e0e0e0;
@@ -103,14 +104,69 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. MENU LATERALE ---
-st.sidebar.title("🕹️ Control Panel")
+# --- 3. FUNZIONI QUANTITATIVE (LOGICA HRP) ---
+def get_ivp(cov):
+    # Inverse Variance Portfolio
+    ivp = 1. / np.diag(cov)
+    ivp /= ivp.sum()
+    return ivp
+
+def get_cluster_var(cov, c_items):
+    # Calcola varianza per cluster
+    cov_slice = cov.loc[c_items, c_items]
+    w = get_ivp(cov_slice).reshape(-1, 1)
+    c_var = np.dot(np.dot(w.T, cov_slice), w)[0, 0]
+    return c_var
+
+def get_quasi_diag(link):
+    # Riordina cluster
+    link = link.astype(int)
+    sort_ix = pd.Series([link[-1, 0], link[-1, 1]])
+    num_items = link[-1, 3]
+    while sort_ix.max() >= num_items:
+        sort_ix.index = range(0, sort_ix.shape[0] * 2, 2)
+        df0 = sort_ix[sort_ix >= num_items]
+        i = df0.index; j = df0.values - num_items
+        sort_ix[i] = link[j, 0]
+        df0 = pd.Series(link[j, 1], index=i + 1)
+        sort_ix = pd.concat([sort_ix, df0]) 
+        sort_ix = sort_ix.sort_index()
+        sort_ix.index = range(sort_ix.shape[0])
+    return sort_ix.tolist()
+
+def get_hrp_weights(cov, tickers):
+    # 1. Clustering Gerarchico
+    corr = cov.corr()
+    dist = np.sqrt((1 - corr) / 2)
+    link = sch.linkage(dist, 'single')
+    
+    # 2. Ordinamento Quasi-Diagonale
+    sort_ix = get_quasi_diag(link)
+    sort_ix = corr.index[sort_ix].tolist()
+    
+    # 3. Allocazione Ricorsiva (Bisezione)
+    weights = pd.Series(1, index=sort_ix)
+    c_items = [sort_ix]
+    while len(c_items) > 0:
+        c_items = [i[j:k] for i in c_items for j, k in ((0, len(i) // 2), (len(i) // 2, len(i))) if len(i) > 1]
+        for i in range(0, len(c_items), 2):
+            c_items0 = c_items[i]
+            c_items1 = c_items[i + 1]
+            c_var0 = get_cluster_var(cov, c_items0)
+            c_var1 = get_cluster_var(cov, c_items1)
+            alpha = 1 - c_var0 / (c_var0 + c_var1)
+            weights[c_items0] *= alpha
+            weights[c_items1] *= 1 - alpha
+    return weights
+
+# --- 4. MENU LATERALE ---
+st.sidebar.title("🕹️ Pannello di Controllo")
 app_mode = st.sidebar.radio(
     "Modalità:",
     ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v5.5\nPass Score UI")
+st.sidebar.info("STX Ultimate v6.1\nHRP + Heatmap Fix (ITA)")
 
 # ==============================================================================
 # MODALITÀ 1: ANALISI SINGOLA (DEEP DIVE)
@@ -122,7 +178,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
 
     col1, col2 = st.columns([3, 1])
     with col1: 
-        ticker_input = st.text_input("Inserisci Ticker", placeholder="Es. STLA.MI, TSLA, BTC-USD").upper().strip()
+        ticker_input = st.text_input("Inserisci Ticker", placeholder="Es. STLAM.MI, TSLA, BTC-USD").upper().strip()
     with col2: 
         benchmark_input = st.text_input("Benchmark", value="^GSPC").upper().strip()
 
@@ -130,16 +186,13 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
     def analyze_news_sentiment(ticker):
         try:
             clean_ticker = ticker.split('.')[0]
-            
-            # 1. Lista fonti RSS
+            # 1. Lista Fonti RSS
             rss_urls = [
                 f"https://news.google.com/rss/search?q={clean_ticker}+stock+market&hl=en-US&gl=US&ceid=US:en",
                 f"https://finance.yahoo.com/rss/headline?s={clean_ticker}"
             ]
-            
             all_entries = []
-            
-            # 2. Scaricamento
+            # 2. Loop Download
             for url in rss_urls:
                 try:
                     feed = feedparser.parse(url)
@@ -154,10 +207,11 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             analyzed_news = []
             seen_titles = set()
             
+            # Keywords (in inglese perché le fonti sono spesso internazionali)
             panic_words = ["war", "bankrupt", "fraud", "crash", "crisis", "collapse"]
             hype_words = ["soar", "record", "skyrocket", "surge", "buy", "beats"]
 
-            # 3. Analisi
+            # 3. Loop Analisi
             for entry in all_entries[:60]: 
                 title = entry.title
                 if title in seen_titles: continue
@@ -274,8 +328,8 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         if df_p is None:
             st.error("Dati insufficienti."); progress.empty()
         else:
-            # --- SEZIONE NEWS UI (RATING 0-10 + PASS SCORE) ---
-            st.markdown("##### 📰 News Sentiment Analysis")
+            # --- NEWS SECTION UI ---
+            st.markdown("##### 📰 Analisi Sentiment Notizie")
             
             # Formula: ((Score + 1) / 2) * 10
             vote_display = ((s_score + 1) / 2) * 10
@@ -288,15 +342,15 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             
             c1, c2 = st.columns([1, 2])
             
-            # Score Gigante + Pass Score Text
+            # Big Score
             with c1: 
                 st.markdown(f"<div style='text-align:center; border:2px solid {c}; padding:10px; border-radius:10px; margin-bottom:5px;'><div style='font-size:3rem;'>{vote_display:.1f}<span style='font-size:1.5rem; color:gray;'>/10</span></div><div style='color:{c}; font-weight:bold;'>{l}</div></div>", unsafe_allow_html=True)
                 st.markdown("<div style='text-align:center; color:gray; font-size:0.8rem;'>Pass Score: 5/10</div>", unsafe_allow_html=True)
             
-            # Lista Classificata
+            # News List
             with c2:
                 if news:
-                    st.caption("🔥 Top Articoli (Voto d'Impatto 0-10):")
+                    st.caption("🔥 Top Articoli (Punteggio Impatto 0-10):")
                     sorted_news = sorted(news, key=lambda x: abs(x['score']), reverse=True)
                     
                     with st.container(height=200):
@@ -316,11 +370,10 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                             </div>
                             """, unsafe_allow_html=True)
                 else:
-                    st.info("Nessuna news recente trovata.")
-            # -----------------------------------------
+                    st.info("Nessuna notizia recente trovata.")
 
             # AI Training
-            progress.progress(40, "AI Training...")
+            progress.progress(40, "Addestramento AI...")
             model, scaler, scaled, cols = train_lstm(df_l)
             
             # Simulation
@@ -363,10 +416,10 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             # Main Chart
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df_p.index[-365:], y=df_p['Stock_Price'].iloc[-365:], name='Storico', line=dict(color='black', width=2)))
-            fig.add_trace(go.Scatter(x=dates, y=fut_p, name='Forecast AI', line=dict(color='#0055ff', width=3)))
+            fig.add_trace(go.Scatter(x=dates, y=fut_p, name='Previsione AI', line=dict(color='#0055ff', width=3)))
             st.plotly_chart(fig, use_container_width=True)
             
-            # --- EDUCATIONAL TEXT: PREVISIONE ---
+            # --- EDUCATIONAL TEXT: FORECAST ---
             final_p = fut_p[-1]
             start_p = df_p['Stock_Price'].iloc[-1]
             perc_chg = ((final_p - start_p) / start_p) * 100
@@ -379,7 +432,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             
             st.markdown(f"""
             <div class="explanation-box">
-                <b>📊 Interpretazione Previsione:</b><br>
+                <b>📊 Interpretazione Previsione AI:</b><br>
                 L'Intelligenza Artificiale stima che tra un anno il prezzo potrebbe essere <b>{final_p:.2f}</b>, indicando un trend <b>{trend_desc}</b>.<br>
                 <br>
                 <b>Perché?</b><br>
@@ -409,13 +462,13 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                     expl_macro.append(f"• <b>Paura (VIX):</b> Relazione {rel}. Storicamente {meaning}")
                     
                 if 'Gold_War' in corr.index:
-                     rel = "DIRETTA" if corr['Gold_War'] > 0 else "INVERSA"
-                     meaning = "il titolo segue l'andamento dell'oro (bene rifugio)." if corr['Gold_War'] > 0 else "il titolo soffre quando i capitali si spostano sull'oro."
-                     expl_macro.append(f"• <b>Oro & Geopolitica:</b> Relazione {rel}. {meaning}")
+                      rel = "DIRETTA" if corr['Gold_War'] > 0 else "INVERSA"
+                      meaning = "il titolo segue l'oro (bene rifugio)." if corr['Gold_War'] > 0 else "il titolo soffre quando i capitali si spostano sull'oro."
+                      expl_macro.append(f"• <b>Oro & Geopolitica:</b> Relazione {rel}. {meaning}")
                 
                 if 'Rates_Inflation' in corr.index:
                     rel = "INVERSA" if corr['Rates_Inflation'] < 0 else "DIRETTA"
-                    meaning = "il titolo soffre l'aumento dei tassi d'interesse." if corr['Rates_Inflation'] < 0 else "il titolo beneficia dei tassi alti (es. bancari)."
+                    meaning = "il titolo soffre l'aumento dei tassi d'interesse." if corr['Rates_Inflation'] < 0 else "il titolo beneficia di tassi alti (es. bancari)."
                     expl_macro.append(f"• <b>Tassi d'Interesse:</b> Relazione {rel}. {meaning}")
 
                 macro_text = "<br>".join(expl_macro)
@@ -450,9 +503,9 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                     <b>🎲 Interpretazione del Rischio (Monte Carlo):</b><br>
                     Abbiamo simulato 1000 universi paralleli per il prossimo anno.<br>
                     <ul>
-                    <li><b>Linea Verde (Best Case):</b> Se tutto va benissimo (top 5% degli scenari).</li>
+                    <li><b>Linea Verde (Best Case):</b> Se tutto va alla perfezione (top 5% degli scenari).</li>
                     <li><b>Linea Rossa (Worst Case):</b> Se tutto va male (peggior 5% degli scenari).</li>
-                    <li><b>Value at Risk (VaR):</b> Quel numero rosso sopra indica il rischio statistico. Esempio: se è -20%, significa che c'è il 95% di probabilità che NON perderai più del 20%.</li>
+                    <li><b>Value at Risk (VaR):</b> Quel numero rosso indica il rischio statistico. Esempio: se è -20%, significa che c'è il 95% di probabilità che NON perderai più del 20%.</li>
                     </ul>
                 </div>
                 """, unsafe_allow_html=True)
@@ -466,7 +519,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                     roll = comb['A'].rolling(60).corr(comb['B']).dropna()
                     st.line_chart(roll)
                     
-                    # --- EDUCATIONAL TEXT: CORRELAZIONI ---
+                    # --- EDUCATIONAL TEXT: CORRELATIONS ---
                     last_c = roll.iloc[-1]
                     if last_c > 0.7: c_type = "MOLTO FORTE"
                     elif last_c > 0.3: c_type = "MODERATA"
@@ -478,22 +531,22 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                         <b>🔗 Guida alle Correlazioni:</b><br>
                         Questo grafico mostra quanto il titolo "copia" i movimenti del mercato ({bt}).<br>
                         <ul>
-                        <li><b>+1.0 (Max):</b> Si muovono identici.</li>
-                        <li><b>0.0 (Zero):</b> Il titolo ignora il mercato.</li>
-                        <li><b>-1.0 (Opposto):</b> Se il mercato sale, il titolo scende.</li>
+                        <li><b>+1.0 (Max):</b> Si muovono in modo identico.</li>
+                        <li><b>0.0 (Zero):</b> Si muovono in modo indipendente.</li>
+                        <li><b>-1.0 (Opposto):</b> Si muovono in modo inverso (Hedge).</li>
                         </ul>
                         Attualmente la correlazione è <b>{last_c:.2f}</b>, quindi il legame è <b>{c_type}</b>.
                     </div>
                     """, unsafe_allow_html=True)
-                except: st.info("No correlation.")
+                except: st.info("Nessuna correlazione disponibile.")
 
 # ==============================================================================
-# MODALITÀ 2: PORTFOLIO OPTIMIZER
+# MODALITÀ 2: PORTFOLIO OPTIMIZER (CON MARKOWITZ & HRP)
 # ==============================================================================
 elif app_mode == "⚖️ Ottimizzatore Portafoglio":
     
-    st.markdown('<p class="big-title">PORTFOLIO OPTIMIZER</p>', unsafe_allow_html=True)
-    st.markdown('<p class="subtitle">Efficient Frontier • Markowitz • Asset Allocation</p>', unsafe_allow_html=True)
+    st.markdown('<p class="big-title">OTTIMIZZATORE PORTAFOGLIO</p>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Frontiera Efficiente • Markowitz • HRP (Hierarchical Risk Parity)</p>', unsafe_allow_html=True)
 
     def_tickers = "AAPL, MSFT, GOOG, TSLA, STLA.MI, ENI.MI, BTC-USD, GLD"
     tickers_str = st.text_area("Inserisci Ticker (separati da virgola)", def_tickers, height=70)
@@ -501,9 +554,9 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
     c_btn, c_risk = st.columns([1, 2])
     with c_btn: run_opt = st.button("🚀 Ottimizza", type="primary")
     with c_risk: 
-        rf_rate = st.number_input("Risk-Free Rate", 0.04, step=0.01)
+        rf_rate = st.number_input("Tasso Risk-Free (es. 0.04 per 4%)", 0.04, step=0.01)
         # --- EDUCATIONAL TEXT: RISK FREE ---
-        st.caption("ℹ️ Inserisci il rendimento di un titolo di stato sicuro (es. BTP o Treasury a 10 anni). Serve come base per calcolare quanto 'rischio' vale la pena correre.")
+        st.caption("ℹ️ Inserisci il rendimento di un titolo di stato sicuro (es. BTP o Treasury 10Y). Serve come base per il calcolo del rischio.")
 
     def port_perf(weights, mean_ret, cov):
         ret = np.sum(mean_ret * weights) * 252
@@ -539,29 +592,65 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                     cov_m = rets.cov()
                     num = len(valid_tickers)
                     
+                    # 1. MARKOWITZ (Max Sharpe)
                     cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
                     bnds = tuple((0.0, 1.0) for _ in range(num))
                     init = num * [1./num,]
                     
                     res = sco.minimize(neg_sharpe, init, args=(mean_r, cov_m, rf_rate), method='SLSQP', bounds=bnds, constraints=cons)
-                    opt_w = res.x
-                    opt_std, opt_ret = port_perf(opt_w, mean_r, cov_m)
-                    opt_shp = (opt_ret - rf_rate) / opt_std
+                    opt_w_m = res.x
                     
-                    st.success("Ottimizzato!")
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric("Rendimento Atteso", f"{opt_ret*100:.2f}%")
-                    m2.metric("Volatilità", f"{opt_std*100:.2f}%")
-                    m3.metric("Sharpe Ratio", f"{opt_shp:.2f}")
+                    # 2. HRP (Hierarchical Risk Parity)
+                    hrp_w_series = get_hrp_weights(cov_m, valid_tickers)
+                    # Riordina pesi HRP per allinearli ai ticker originali
+                    opt_w_hrp = [hrp_w_series[t] for t in valid_tickers]
                     
-                    c_pie, c_hm = st.columns(2)
-                    with c_pie:
-                        lbls = [valid_tickers[i] for i in range(num) if opt_w[i]>0.01]
-                        vals = [opt_w[i] for i in range(num) if opt_w[i]>0.01]
-                        st.plotly_chart(go.Figure(data=[go.Pie(labels=lbls, values=vals, hole=.4)]), use_container_width=True)
-                    with c_hm:
-                        st.plotly_chart(go.Figure(data=go.Heatmap(z=rets.corr().values, x=valid_tickers, y=valid_tickers, colorscale='RdBu', zmin=-1, zmax=1)), use_container_width=True)
+                    st.success("Ottimizzazione Completata!")
                     
+                    # --- CONFRONTO METODI ---
+                    c_m, c_h = st.columns(2)
+                    
+                    with c_m:
+                        st.subheader("🅰️ Markowitz (Aggressivo)")
+                        st.caption("Massimizza il rendimento rispetto al rischio. Tende a concentrarsi su pochi titoli vincenti.")
+                        std_m, ret_m = port_perf(opt_w_m, mean_r, cov_m)
+                        shp_m = (ret_m - rf_rate) / std_m
+                        st.metric("Sharpe Ratio", f"{shp_m:.2f}", delta="Rischio/Rendimento")
+                        st.metric("Rendimento Atteso", f"{ret_m*100:.2f}%")
+                        st.metric("Volatilità (Rischio)", f"{std_m*100:.2f}%")
+                        
+                        lbls_m = [valid_tickers[i] for i in range(num) if opt_w_m[i]>0.01]
+                        vals_m = [opt_w_m[i] for i in range(num) if opt_w_m[i]>0.01]
+                        st.plotly_chart(go.Figure(data=[go.Pie(labels=lbls_m, values=vals_m, hole=.4)]), use_container_width=True)
+
+                    with c_h:
+                        st.subheader("🅱️ HRP (Quant/Robusto)")
+                        st.caption("Usa il Machine Learning per diversificare in base alle correlazioni. Più stabile nelle crisi.")
+                        std_h, ret_h = port_perf(np.array(opt_w_hrp), mean_r, cov_m)
+                        shp_h = (ret_h - rf_rate) / std_h
+                        st.metric("Sharpe Ratio", f"{shp_h:.2f}")
+                        st.metric("Rendimento Atteso", f"{ret_h*100:.2f}%")
+                        st.metric("Volatilità (Rischio)", f"{std_h*100:.2f}%")
+                        
+                        lbls_h = [valid_tickers[i] for i in range(num) if opt_w_hrp[i]>0.01]
+                        vals_h = [opt_w_hrp[i] for i in range(num) if opt_w_hrp[i]>0.01]
+                        st.plotly_chart(go.Figure(data=[go.Pie(labels=lbls_h, values=vals_h, hole=.4)]), use_container_width=True)
+
+                    # --- EDUCATIONAL BOX HRP ---
+                    st.markdown("""
+                    <div class="explanation-box">
+                        <b>🎓 Analisi Quantitativa: Markowitz vs HRP</b><br>
+                        <ul>
+                        <li><b>Markowitz (Media-Varianza):</b> Guarda al passato e scommette pesantemente sui "cavalli vincenti". Ottimo se il futuro assomiglia al passato, rischioso se il trend cambia.</li>
+                        <li><b>HRP (Hierarchical Risk Parity):</b> Non guarda a quanto un titolo ha guadagnato, ma a <i>come si muove</i> rispetto agli altri. Raggruppa i titoli simili (cluster) e divide i soldi per evitare di avere troppe uova nello stesso paniere. Preferito dai fondi moderni.</li>
+                        </ul>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # --- HEATMAP RESTORED (FIX) ---
+                    st.subheader("Correlazione Asset (Heatmap)")
+                    st.plotly_chart(go.Figure(data=go.Heatmap(z=rets.corr().values, x=valid_tickers, y=valid_tickers, colorscale='RdBu', zmin=-1, zmax=1)), use_container_width=True)
+
                     # --- FRONTIERA EFFICIENTE ---
                     st.subheader("Frontiera Efficiente (Simulazione)")
                     n_sim = 2000
@@ -579,5 +668,6 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                         
                     ef = go.Figure()
                     ef.add_trace(go.Scatter(x=v_arr, y=r_arr, mode='markers', marker=dict(color=s_arr, colorscale='Viridis', showscale=True), name='Simulazioni'))
-                    ef.add_trace(go.Scatter(x=[opt_std], y=[opt_ret], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='OTTIMO'))
+                    ef.add_trace(go.Scatter(x=[std_m], y=[ret_m], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='Markowitz (Max Sharpe)'))
+                    ef.add_trace(go.Scatter(x=[std_h], y=[ret_h], mode='markers', marker=dict(color='cyan', size=15, symbol='diamond'), name='HRP (Robusto)'))
                     st.plotly_chart(ef, use_container_width=True)
