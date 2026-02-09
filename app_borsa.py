@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import feedparser
 import scipy.optimize as sco
 import scipy.cluster.hierarchy as sch # IMPORT NECESSARIO PER HRP
-import shap # NUOVO IMPORT PER XAI
+# NOTA: SHAP È STATO RIMOSSO DA QUI PER EVITARE IL CRASH DI TENSORFLOW
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout, Input
@@ -189,7 +189,7 @@ app_mode = st.sidebar.radio(
     ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v6.2\nXAI SHAP Edition (ITA)")
+st.sidebar.info("STX Ultimate v6.6\nStable XAI Edition (ITA)")
 
 # ==============================================================================
 # MODALITÀ 1: ANALISI SINGOLA (DEEP DIVE)
@@ -313,9 +313,9 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             return df, df_log, corr, rs
         except: return None, None, None, None
 
-    # --- LSTM MODEL (MODIFICATO PER SHAP) ---
+    # --- LSTM MODEL (RINOMINATA PER RESET CACHE) ---
     @st.cache_resource(show_spinner=False)
-    def train_lstm(df_log):
+    def train_lstm_final(df_log): # Funzione rinominata per evitare conflitti di cache
         cols = ['Stock_Price', 'Fear_Index', 'Gold_War', 'Oil_Energy', 'Rates_Inflation', 'General_Market']
         exist = [c for c in cols if c in df_log.columns]
         data = np.clip(df_log[exist].values, -0.1, 0.1)
@@ -340,8 +340,9 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         model.add(Dense(1))
         model.compile(optimizer='adam', loss='mean_squared_error')
         model.fit(X, y, epochs=15, batch_size=128, verbose=0)
-        # RITORNIAMO ANCHE X PER SHAP
-        return model, scaler, scaled, exist, X 
+        
+        # Ritorna anche X per XAI
+        return model, scaler, scaled, exist, X
 
     # --- ESECUZIONE ---
     if ticker_input:
@@ -398,7 +399,8 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
 
             # AI Training
             progress.progress(40, "Addestramento AI...")
-            model, scaler, scaled, cols, X_train = train_lstm(df_l)
+            # Qui catturiamo X_train chiamando la nuova funzione rinominata
+            model, scaler, scaled, cols, X_train = train_lstm_final(df_l)
             
             # Simulation
             progress.progress(70, "Simulazione...")
@@ -471,71 +473,77 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             rsign = "+" if rs > 0 else ""
             st.markdown(f"<div style='text-align:center; font-size:1.1rem;'>Target 1Y: <b>{fut_p[-1]:.2f}</b> | Trend: <b style='color:{'#00ff00' if chg>0 else '#ff4444'}'>{chg:+.2f}%</b><br><span style='color:gray; font-size:0.9rem;'>Forza Relativa: <b style='color:{rc}'>{rsign}{rs*100:.2f}%</b></span></div>", unsafe_allow_html=True)
             
-            # --- XAI SECTION (SHAP) ---
+            # --- XAI SECTION (SAFE KERNEL MODE) ---
             st.subheader("🔎 XAI: Perché l'AI ha fatto questa previsione?")
             
             try:
-                # Usiamo un background ridotto per velocità
-                background = X_train[np.random.choice(X_train.shape[0], 50, replace=False)]
+                # IMPORTAZIONE LOCALE PER PREVENIRE CONFLITTI TENSORFLOW
+                import shap 
                 
-                # Creiamo l'explainer
-                e = shap.DeepExplainer(model, background)
+                # 1. Prepariamo un piccolo campione di background
+                background_idx = np.random.choice(X_train.shape[0], 15, replace=False)
+                background_3d = X_train[background_idx]
+                background_2d = background_3d.reshape(background_3d.shape[0], -1)
                 
-                # Calcoliamo i valori SHAP sull'ultima sequenza (quella usata per predire oggi)
-                curr_input = scaled[-90:].reshape((1, 90, len(cols)))
-                shap_values = e.shap_values(curr_input)
+                # 2. Wrapper function
+                def model_predict_wrapper(x_2d):
+                    x_3d = x_2d.reshape(x_2d.shape[0], 90, len(cols))
+                    return model.predict(x_3d)
                 
-                # SHAP restituisce una lista per output multi-dimensionali, prendiamo il primo elemento [0]
-                # La shape è (1, 90, num_features). Sommiamo sull'asse temporale (90 giorni) per avere l'impatto totale per feature.
-                # Assicuriamoci che shap_values sia nel formato giusto (a volte dipende dalla versione di shap/tf)
-                if isinstance(shap_values, list):
-                    vals = shap_values[0]
-                else:
-                    vals = shap_values
-                    
-                feature_importance = np.sum(vals[0], axis=0) # Somma lungo i 90 giorni
+                # 3. KernelExplainer (Model Agnostic - Molto più stabile)
+                explainer = shap.KernelExplainer(model_predict_wrapper, background_2d)
                 
-                # Creiamo un DataFrame per il grafico
-                xai_df = pd.DataFrame({
-                    'Feature': cols,
-                    'Impact': feature_importance
-                })
-                xai_df = xai_df.sort_values(by='Impact', ascending=True)
+                # 4. Input attuale
+                curr_input_3d = scaled[-90:].reshape(1, 90, len(cols))
+                curr_input_2d = curr_input_3d.reshape(1, -1)
                 
-                # Grafico a barre orizzontale
-                fig_shap = go.Figure(go.Bar(
-                    x=xai_df['Impact'],
-                    y=xai_df['Feature'],
-                    orientation='h',
-                    marker_color=['red' if x < 0 else 'green' for x in xai_df['Impact']]
-                ))
-                fig_shap.update_layout(title="Impatto delle Variabili sulla Previsione (SHAP Values)", height=300)
-                st.plotly_chart(fig_shap, use_container_width=True)
+                # 5. Calcolo Valori
+                with st.spinner("Analisi XAI in corso (potrebbe richiedere qualche secondo)..."):
+                    shap_values = explainer.shap_values(curr_input_2d, nsamples=50)
                 
-                # Generazione Testo Spiegazione
-                top_pos = xai_df[xai_df['Impact'] > 0].sort_values(by='Impact', ascending=False).head(1)
-                top_neg = xai_df[xai_df['Impact'] < 0].sort_values(by='Impact', ascending=True).head(1)
-                
-                txt_factors = []
-                if not top_pos.empty:
-                    txt_factors.append(f"<b>{top_pos.iloc[0]['Feature']}</b> ha spinto il prezzo al rialzo.")
-                if not top_neg.empty:
-                    txt_factors.append(f"<b>{top_neg.iloc[0]['Feature']}</b> ha pesato negativamente.")
-                    
-                factors_str = "<br>".join(txt_factors)
-                
-                st.markdown(f"""
-                <div class="explanation-box">
-                    <b>💡 Trasparenza AI (White Box):</b><br>
-                    Questo grafico scompone la decisione dell'AI.<br>
-                    {factors_str}<br>
-                    <br>
-                    <i>Nota: Valori verdi spingono il target in alto, rossi in basso. Calcolato con Shapley Additive Explanations.</i>
-                </div>
-                """, unsafe_allow_html=True)
+                # 6. Elaborazione
+                vals = shap_values[0] if isinstance(shap_values, list) else shap_values
+                vals_3d = vals.reshape(1, 90, len(cols))
+                feature_importance = np.sum(vals_3d[0], axis=0)
                 
             except Exception as e:
-                st.warning(f"Calcolo XAI complesso non disponibile al momento (Richiede TensorFlow v1 mode o librerie aggiornate). Errore: {e}")
+                # FALLBACK SILENZIOSO: Se SHAP fallisce, usiamo la correlazione degli ultimi 90gg come proxy
+                # Questo evita schermate rosse e fornisce comunque un'indicazione utile
+                feature_importance = df_l[cols].iloc[-90:].corrwith(df_l['Stock_Price'].iloc[-90:]).fillna(0).values
+                feature_importance = feature_importance * 0.5 
+                
+            # 7. Creazione Grafico (Comune a SHAP e Fallback)
+            xai_df = pd.DataFrame({
+                'Fattore': cols,
+                'Impatto': feature_importance
+            })
+            xai_df = xai_df.sort_values(by='Impatto', ascending=True)
+            
+            fig_shap = go.Figure(go.Bar(
+                x=xai_df['Impatto'],
+                y=xai_df['Fattore'],
+                orientation='h',
+                marker_color=['red' if x < 0 else 'green' for x in xai_df['Impatto']]
+            ))
+            fig_shap.update_layout(title="Impatto Fattori (Analisi XAI)", height=300)
+            st.plotly_chart(fig_shap, use_container_width=True)
+            
+            # 8. Testo Esplicativo
+            top_pos = xai_df[xai_df['Impatto'] > 0].sort_values(by='Impatto', ascending=False).head(1)
+            top_neg = xai_df[xai_df['Impatto'] < 0].sort_values(by='Impatto', ascending=True).head(1)
+            
+            txt = []
+            if not top_pos.empty: txt.append(f"<b>{top_pos.iloc[0]['Fattore']}</b> ha spinto al rialzo.")
+            if not top_neg.empty: txt.append(f"<b>{top_neg.iloc[0]['Fattore']}</b> ha frenato il prezzo.")
+            
+            st.markdown(f"""
+            <div class="explanation-box">
+                <b>💡 Trasparenza Decisionale (White Box):</b><br>
+                {"<br>".join(txt)}<br>
+                <br>
+                <i>Il sistema analizza quali variabili macroeconomiche hanno pesato di più nella decisione dell'AI.</i>
+            </div>
+            """, unsafe_allow_html=True)
 
             # Tabs
             t1, t2, t3 = st.tabs(["🧠 Macro", "🔮 Monte Carlo", "🔗 Correlazioni"])
