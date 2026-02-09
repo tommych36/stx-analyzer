@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS FIX GRAFICO ---
+# --- 2. CSS "GHOST MODE" (FIX SIDEBAR) & STILE ---
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
@@ -29,41 +29,72 @@ st.markdown("""
             font-family: 'JetBrains Mono', monospace !important;
         }
 
-        /* Nascondiamo completamente il bottone originale buggato */
+        /* --- FIX SIDEBAR TOGGLE --- */
+        /* Nascondiamo il bottone buggato */
         [data-testid="stSidebarCollapsedControl"] {
             visibility: hidden !important;
             width: 50px !important; 
             height: 50px !important;
+            position: relative;
         }
 
-        /* Disegniamo la freccia pulita al suo posto */
+        /* Disegniamo la freccia pulita per APRIRE */
         [data-testid="stSidebarCollapsedControl"]::after {
             content: "➤"; 
             visibility: visible !important;
             font-size: 24px !important;
             color: #808080;
             position: absolute;
-            top: 20px; left: 20px; /* Posizione fissa */
-            cursor: pointer;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex; align-items: center; justify_content: center;
+            transition: color 0.3s;
         }
         
         [data-testid="stSidebarCollapsedControl"]:hover::after {
-            color: #ffffff;
+            color: #000000; /* Nero su sfondo bianco */
+            cursor: pointer;
         }
 
-        .big-title { text-align: center; font-size: 3rem !important; font-weight: 700; margin-bottom: 10px; color: var(--text-color); }
-        .subtitle { text-align: center; font-size: 1rem; color: gray; margin-bottom: 30px; }
+        /* Disegniamo la freccia pulita per CHIUDERE */
+        [data-testid="stSidebar"] button[kind="header"]::after {
+            content: "◀"; 
+            visibility: visible !important;
+            font-size: 24px !important;
+            color: #808080;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex; align-items: center; justify_content: center;
+        }
+
+        .big-title { 
+            text-align: center; 
+            font-size: 3rem !important; 
+            font-weight: 700; 
+            margin-bottom: 10px; 
+            color: var(--text-color); 
+        }
+        .subtitle { 
+            text-align: center; 
+            font-size: 1rem; 
+            color: gray; 
+            margin-bottom: 30px; 
+        }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. MENU ---
+# --- 3. MENU LATERALE ---
 st.sidebar.title("🕹️ Control Panel")
-app_mode = st.sidebar.radio("Modalità:", ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"])
+app_mode = st.sidebar.radio(
+    "Modalità:",
+    ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
+)
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v4.5\nMath Crash Fix")
+st.sidebar.info("STX Ultimate v5.0\nFull Integral Code")
 
 # ==============================================================================
-# MODALITÀ 1: ANALISI SINGOLA
+# MODALITÀ 1: ANALISI SINGOLA (DEEP DIVE)
 # ==============================================================================
 if app_mode == "🔎 Analisi Singola (Deep Dive)":
     
@@ -71,8 +102,10 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
     st.markdown('<p class="subtitle">AI + Macro + Monte Carlo + Google News Sentiment</p>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([3, 1])
-    with col1: ticker_input = st.text_input("Inserisci Ticker", placeholder="Es. STLA.MI, TSLA").upper().strip()
-    with col2: benchmark_input = st.text_input("Benchmark", value="^GSPC").upper().strip()
+    with col1: 
+        ticker_input = st.text_input("Inserisci Ticker", placeholder="Es. STLA.MI, TSLA, BTC-USD").upper().strip()
+    with col2: 
+        benchmark_input = st.text_input("Benchmark", value="^GSPC").upper().strip()
 
     # --- NEWS SENTIMENT ---
     def analyze_news_sentiment(ticker):
@@ -83,19 +116,32 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             if not feed.entries: return 0, []
             
             analyzer = SentimentIntensityAnalyzer()
-            total_score = 0; analyzed_news = []
-            panic_words = ["war", "bankrupt", "crash", "crisis", "collapse"]
-            hype_words = ["soar", "record", "skyrocket", "surge", "buy"]
+            total_score = 0
+            analyzed_news = []
+            
+            panic_words = ["war", "bankrupt", "fraud", "crash", "crisis", "collapse"]
+            hype_words = ["soar", "record", "skyrocket", "surge", "buy", "beats"]
 
-            for entry in feed.entries[:60]:
+            for entry in feed.entries[:20]: # Analizza 20 news
                 title = entry.title
+                link = entry.link
+                publisher = entry.source.title if 'source' in entry else "Google News"
+                
                 vs = analyzer.polarity_scores(title)
                 score = vs['compound']
-                if any(w in title.lower() for w in panic_words) and score > -0.5: score = -0.6
-                if any(w in title.lower() for w in hype_words) and score < 0.5: score = 0.6
+                
+                if any(w in title.lower() for w in panic_words) and score > -0.5: 
+                    score = -0.6
+                if any(w in title.lower() for w in hype_words) and score < 0.5: 
+                    score = 0.6
+                
                 total_score += score
-                color = "#00ff00" if score >= 0.05 else "#ff4444" if score <= -0.05 else "gray"
-                analyzed_news.append({'title': title, 'link': entry.link, 'score': score, 'color': color, 'publisher': entry.source.title if 'source' in entry else "Google"})
+                
+                if score >= 0.05: color = "#00ff00"
+                elif score <= -0.05: color = "#ff4444"
+                else: color = "gray"
+                
+                analyzed_news.append({'title': title, 'link': link, 'score': score, 'color': color, 'publisher': publisher})
                 
             return (total_score / len(analyzed_news) if analyzed_news else 0), analyzed_news
         except: return 0, []
@@ -109,31 +155,46 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             if stock is None or len(stock) < 300: return None, None, None, None
             
             stock.index = pd.to_datetime(stock.index).tz_localize(None)
-            df = stock[['Close']].copy() if 'Close' in stock.columns else stock[['Adj Close']].copy()
+            if 'Close' in stock.columns: df = stock[['Close']].copy()
+            elif 'Adj Close' in stock.columns: df = stock[['Adj Close']].copy()
+            else: return None, None, None, None
+            
             df.rename(columns={df.columns[0]: 'Stock_Price'}, inplace=True)
             
+            # Dati Macro
             macro_dict = {"^VIX": "Fear_Index", "GC=F": "Gold_War", "CL=F": "Oil_Energy", "^TNX": "Rates_Inflation"}
-            for s, n in macro_dict.items():
+            for symbol, name in macro_dict.items():
                 try:
-                    m = yf.Ticker(s).history(period="max")
+                    m = yf.Ticker(symbol).history(period="max")
                     m.index = pd.to_datetime(m.index).tz_localize(None)
-                    df[n] = m['Close']
-                except: df[n] = 0.0
+                    df[name] = m['Close']
+                except: df[name] = 0.0
             
-            bt = benchmark_ticker if benchmark_ticker else "^GSPC"
+            # Benchmark
+            if not benchmark_ticker: benchmark_ticker = "^GSPC"
             try:
-                b = yf.Ticker(bt).history(period="max")
+                b = yf.Ticker(benchmark_ticker).history(period="max")
                 b.index = pd.to_datetime(b.index).tz_localize(None)
                 df['General_Market'] = b['Close']
-            except: df['General_Market'] = df['Stock_Price']
+            except:
+                try:
+                    b = yf.Ticker("^GSPC").history(period="max")
+                    b.index = pd.to_datetime(b.index).tz_localize(None)
+                    df['General_Market'] = b['Close']
+                except: df['General_Market'] = df['Stock_Price']
             
-            df = df.ffill().bfill().dropna(subset=['Stock_Price'])
+            df = df.ffill().bfill()
+            df.dropna(subset=['Stock_Price'], inplace=True)
             if len(df) < 300: return None, None, None, None
             
             df_log = np.log(df / df.shift(1)).fillna(0)
             df_log['Stock_Vol'] = df['Stock_Price'].pct_change().rolling(20).std().fillna(0)
+            
+            try:
+                rs = float(df_log['Stock_Price'].cumsum().iloc[-1] - df_log['General_Market'].cumsum().iloc[-1])
+            except: rs = 0.0
+            
             corr = df_log.iloc[-500:].corr()['Stock_Price'].drop(['Stock_Price', 'Stock_Vol'])
-            rs = float(df_log['Stock_Price'].cumsum().iloc[-1] - df_log['General_Market'].cumsum().iloc[-1])
             return df, df_log, corr, rs
         except: return None, None, None, None
 
@@ -143,7 +204,8 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         cols = ['Stock_Price', 'Fear_Index', 'Gold_War', 'Oil_Energy', 'Rates_Inflation', 'General_Market']
         exist = [c for c in cols if c in df_log.columns]
         data = np.clip(df_log[exist].values, -0.1, 0.1)
-        scaler = MinMaxScaler((-1, 1))
+        
+        scaler = MinMaxScaler(feature_range=(-1, 1))
         scaled = scaler.fit_transform(data)
         
         X, y = [], []
@@ -155,14 +217,17 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         
         model = Sequential()
         model.add(Input(shape=(X.shape[1], X.shape[2])))
-        model.add(LSTM(50, return_sequences=True)); model.add(Dropout(0.2))
-        model.add(LSTM(50)); model.add(Dropout(0.2))
-        model.add(Dense(25)); model.add(Dense(1))
+        model.add(LSTM(50, return_sequences=True))
+        model.add(Dropout(0.2))
+        model.add(LSTM(50))
+        model.add(Dropout(0.2))
+        model.add(Dense(25))
+        model.add(Dense(1))
         model.compile(optimizer='adam', loss='mean_squared_error')
         model.fit(X, y, epochs=15, batch_size=128, verbose=0)
         return model, scaler, scaled, exist
 
-    # --- EXECUTION ---
+    # --- ESECUZIONE ANALISI ---
     if ticker_input:
         progress = st.progress(0, "Analisi in corso...")
         s_score, news = analyze_news_sentiment(ticker_input)
@@ -171,7 +236,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         if df_p is None:
             st.error("Dati insufficienti."); progress.empty()
         else:
-            # Sentiment Display
+            # Display Sentiment
             st.markdown("##### 📰 Google News Sentiment")
             if s_score > 0.2: l, c, imp = "BULLISH", "#00ff00", 1.05
             elif s_score > 0.05: l, c, imp = "POSITIVO", "#90ee90", 1.02
@@ -189,7 +254,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             progress.progress(40, "AI Training...")
             model, scaler, scaled, cols = train_lstm(df_l)
             
-            # Simulation Loop (IL PUNTO DEL CRASH ERA QUI)
+            # Simulation (CON FIX CRASH MATEMATICO)
             progress.progress(70, "Simulazione...")
             last_seq = scaled[-90:]
             curr = last_seq.reshape((1, 90, len(cols)))
@@ -202,17 +267,16 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 p = np.clip(p, -0.05, 0.05) * (0.99**i)
                 fut_ret.append(p)
                 
-                # --- FIX MATEMATICO QUI SOTTO ---
+                # --- FIX VALUE ERROR (RESHAPE) ---
                 if len(macro_trend) > 0:
                     mac = macro_trend * (0.95**i) + np.random.normal(0, 0.01, len(macro_trend))
-                    new_row = np.insert(mac, 0, p) # Crea array 1D
+                    new_row = np.insert(mac, 0, p)
                 else:
                     new_row = np.array([p])
                 
-                # Reshape forzato per evitare ValueError (Shape Mismatch)
                 new_row = new_row.reshape(1, 1, len(new_row)) 
                 curr = np.append(curr[:, 1:, :], new_row, axis=1)
-                # -------------------------------
+                # ---------------------------------
                 
             dummy = np.zeros((len(fut_ret), len(cols)))
             dummy[:, 0] = fut_ret
@@ -229,30 +293,27 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             dates = [df_p.index[-1] + datetime.timedelta(days=i) for i in range(1, FD+1)]
             progress.progress(100, "Fatto."); progress.empty()
             
-            # Grafico
+            # Main Chart (Light Theme: Black Line)
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df_p.index[-365:], y=df_p['Stock_Price'].iloc[-365:], name='Storico', line=dict(color='white')))
+            fig.add_trace(go.Scatter(x=df_p.index[-365:], y=df_p['Stock_Price'].iloc[-365:], name='Storico', line=dict(color='black', width=2)))
             fig.add_trace(go.Scatter(x=dates, y=fut_p, name='Forecast AI', line=dict(color='#0055ff', width=3)))
-            fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',   # Sfondo esterno trasparente
-                plot_bgcolor='rgba(128,128,128,0.1)', # Sfondo griglia semitrasparente
-                font=dict(color='white'),        # Tutte le scritte in bianco
-                height=500                       # Altezza fissa
-            )
             st.plotly_chart(fig, use_container_width=True)
+            
+            # Stats
+            chg = ((fut_p[-1] - df_p['Stock_Price'].iloc[-1]) / df_p['Stock_Price'].iloc[-1])*100
+            rc = "#00ff00" if rs > 0 else "#ff4444"
+            rsign = "+" if rs > 0 else ""
+            st.markdown(f"<div style='text-align:center; font-size:1.1rem;'>Target 1Y: <b>{fut_p[-1]:.2f}</b> | Trend: <b style='color:{'#00ff00' if chg>0 else '#ff4444'}'>{chg:+.2f}%</b><br><span style='color:gray; font-size:0.9rem;'>Forza Relativa: <b style='color:{rc}'>{rsign}{rs*100:.2f}%</b></span></div>", unsafe_allow_html=True)
             
             # Tabs
             t1, t2, t3 = st.tabs(["🧠 Macro", "🔮 Monte Carlo", "🔗 Correlazioni"])
-            with t1:
-                # 1. Creiamo la figura e la salviamo in una variabile 'fig_macro'
-                fig_macro = go.Figure(go.Bar(x=corr.index, y=corr.values, marker_color=['red' if x<0 else 'green' for x in corr.values]))
-    
-                # 2. Applichiamo lo stile SCURO (Sfondo trasparente, testo bianco)
-                fig_macro.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
-    
-                # 3. La mostriamo
-                st.plotly_chart(fig_macro, use_container_width=True)
+            
+            with t1: 
+                f_corr = go.Figure(go.Bar(x=corr.index, y=corr.values, marker_color=['red' if x<0 else 'green' for x in corr.values]))
+                st.plotly_chart(f_corr, use_container_width=True)
+            
             with t2:
+                # Monte Carlo Completo (Ripristinato)
                 u, v = df_l['Stock_Price'].mean(), df_l['Stock_Price'].var()
                 dr, sd = u-(0.5*v), df_l['Stock_Price'].std()
                 days = np.exp(dr + sd * np.random.normal(0, 1, (FD, 1000)))
@@ -262,7 +323,14 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 fmc = go.Figure()
                 fmc.add_trace(go.Scatter(x=dates, y=np.percentile(paths, 95, axis=1), name='Best', line=dict(color='green')))
                 fmc.add_trace(go.Scatter(x=dates, y=np.percentile(paths, 5, axis=1), name='Worst', line=dict(color='red')))
+                # Mediana (Black)
+                fmc.add_trace(go.Scatter(x=dates, y=np.percentile(paths, 50, axis=1), name='Median', line=dict(color='black', dash='dot')))
                 st.plotly_chart(fmc, use_container_width=True)
+                
+                # VaR Risk (Ripristinato)
+                loss = ((df_p['Stock_Price'].iloc[-1] - np.percentile(paths, 5, axis=1)[-1]) / df_p['Stock_Price'].iloc[-1])*100
+                st.error(f"⚠️ Value at Risk (95%): Nello scenario peggiore statistico, rischio max: -{loss:.2f}%")
+
             with t3:
                 try:
                     bt = benchmark_input if benchmark_input else "^GSPC"
@@ -270,6 +338,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                     bd.index = pd.to_datetime(bd.index).tz_localize(None)
                     comb = pd.DataFrame({'A': df_p['Stock_Price'].pct_change(), 'B': bd['Close'].pct_change()}).dropna()
                     roll = comb['A'].rolling(60).corr(comb['B']).dropna()
+                    # Grafico standard per sfondo bianco
                     st.line_chart(roll)
                 except: st.info("No correlation.")
 
@@ -277,43 +346,93 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
 # MODALITÀ 2: PORTFOLIO OPTIMIZER
 # ==============================================================================
 elif app_mode == "⚖️ Ottimizzatore Portafoglio":
-    st.markdown('<p class="big-title">PORTFOLIO OPTIMIZER</p>', unsafe_allow_html=True)
-    def_tickers = "AAPL, MSFT, GOOG, TSLA, STLA.MI, ENI.MI, BTC-USD, GLD"
-    tickers_str = st.text_area("Inserisci Ticker", def_tickers, height=70)
     
-    c1, c2 = st.columns([1, 2])
-    run_opt = c1.button("🚀 Ottimizza", type="primary")
-    rf_rate = c2.number_input("Risk-Free Rate", 0.04, step=0.01)
+    st.markdown('<p class="big-title">PORTFOLIO OPTIMIZER</p>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Efficient Frontier • Markowitz • Asset Allocation</p>', unsafe_allow_html=True)
+
+    def_tickers = "AAPL, MSFT, GOOG, TSLA, STLA.MI, ENI.MI, BTC-USD, GLD"
+    tickers_str = st.text_area("Inserisci Ticker (separati da virgola)", def_tickers, height=70)
+    
+    c_btn, c_risk = st.columns([1, 2])
+    with c_btn: run_opt = st.button("🚀 Ottimizza", type="primary")
+    with c_risk: rf_rate = st.number_input("Risk-Free Rate", 0.04, step=0.01)
+
+    def port_perf(weights, mean_ret, cov):
+        ret = np.sum(mean_ret * weights) * 252
+        std = np.sqrt(np.dot(weights.T, np.dot(cov, weights))) * np.sqrt(252)
+        return std, ret
+
+    def neg_sharpe(weights, mean_ret, cov, rf):
+        std, ret = port_perf(weights, mean_ret, cov)
+        return -(ret - rf) / std
 
     if run_opt:
         t_list = [x.strip().upper() for x in tickers_str.split(',') if x.strip()]
         if len(t_list) < 2: st.error("Servono almeno 2 asset.")
         else:
-            with st.spinner("Calcolo..."):
+            with st.spinner("Scaricamento e Ottimizzazione..."):
                 closes = pd.DataFrame()
+                valid_tickers = []
+                
                 for t in t_list:
                     try:
                         d = yf.Ticker(t).history(period="2y")
                         if not d.empty:
                             d.index = pd.to_datetime(d.index).tz_localize(None)
                             closes[t] = d['Close']
-                    except: pass
+                            valid_tickers.append(t)
+                    except: st.warning(f"Errore su {t}")
                 
-                closes = closes.ffill().bfill().dropna()
-                if closes.shape[1] < 2: st.error("Dati insufficienti."); st.stop()
-                
-                rets = closes.pct_change(); mean_r = rets.mean(); cov_m = rets.cov()
-                num = len(mean_r)
-                
-                def neg_sharpe(w):
-                    r = np.sum(mean_r * w) * 252
-                    s = np.sqrt(np.dot(w.T, np.dot(cov_m, w))) * np.sqrt(252)
-                    return -(r - rf_rate) / s
-                
-                cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
-                bnds = tuple((0.0, 1.0) for _ in range(num))
-                res = sco.minimize(neg_sharpe, num*[1./num,], method='SLSQP', bounds=bnds, constraints=cons)
-                
-                st.success("Fatto!")
-                labels = closes.columns
-                st.plotly_chart(go.Figure(data=[go.Pie(labels=labels, values=res.x, hole=.4)]), use_container_width=True)
+                if len(valid_tickers) < 2: st.error("Dati insufficienti.")
+                else:
+                    closes = closes.ffill().bfill().dropna()
+                    rets = closes.pct_change()
+                    mean_r = rets.mean()
+                    cov_m = rets.cov()
+                    num = len(valid_tickers)
+                    
+                    cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+                    bnds = tuple((0.0, 1.0) for _ in range(num))
+                    init = num * [1./num,]
+                    
+                    res = sco.minimize(neg_sharpe, init, args=(mean_r, cov_m, rf_rate), method='SLSQP', bounds=bnds, constraints=cons)
+                    opt_w = res.x
+                    opt_std, opt_ret = port_perf(opt_w, mean_r, cov_m)
+                    opt_shp = (opt_ret - rf_rate) / opt_std
+                    
+                    st.success("Ottimizzato!")
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Rendimento Atteso", f"{opt_ret*100:.2f}%")
+                    m2.metric("Volatilità", f"{opt_std*100:.2f}%")
+                    m3.metric("Sharpe Ratio", f"{opt_shp:.2f}")
+                    
+                    c_pie, c_hm = st.columns(2)
+                    with c_pie:
+                        lbls = [valid_tickers[i] for i in range(num) if opt_w[i]>0.01]
+                        vals = [opt_w[i] for i in range(num) if opt_w[i]>0.01]
+                        st.plotly_chart(go.Figure(data=[go.Pie(labels=lbls, values=vals, hole=.4)]), use_container_width=True)
+                    with c_hm:
+                        st.plotly_chart(go.Figure(data=go.Heatmap(z=rets.corr().values, x=valid_tickers, y=valid_tickers, colorscale='RdBu', zmin=-1, zmax=1)), use_container_width=True)
+                    
+                    # --- QUESTA È LA PARTE CHE AVEVO TOLTO E ORA RIPRISTINO ---
+                    st.subheader("Frontiera Efficiente (Simulazione)")
+                    n_sim = 2000
+                    w_all = np.zeros((n_sim, num))
+                    r_arr = np.zeros(n_sim)
+                    v_arr = np.zeros(n_sim)
+                    s_arr = np.zeros(n_sim)
+                    
+                    for i in range(n_sim):
+                        w = np.random.random(num)
+                        w /= np.sum(w)
+                        w_all[i,:] = w
+                        v_arr[i], r_arr[i] = port_perf(w, mean_r, cov_m)
+                        s_arr[i] = (r_arr[i] - rf_rate) / v_arr[i]
+                        
+                    ef = go.Figure()
+                    # Punti Simulazione
+                    ef.add_trace(go.Scatter(x=v_arr, y=r_arr, mode='markers', marker=dict(color=s_arr, colorscale='Viridis', showscale=True), name='Simulazioni'))
+                    # Stella Ottimale
+                    ef.add_trace(go.Scatter(x=[opt_std], y=[opt_ret], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='OTTIMO'))
+                    st.plotly_chart(ef, use_container_width=True)
+                    # -----------------------------------------------------------
