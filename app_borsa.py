@@ -690,7 +690,7 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                     # --- HEATMAP RESTORED (FIX + UI IMPROVEMENT) ---
                     st.subheader("Correlazione Asset (Heatmap)")
                     
-                    # Create heatmap with explicit colorbar text
+                    # Force custom text in heatmap with tickmode='array'
                     fig_corr = go.Figure(data=go.Heatmap(
                         z=rets.corr().values,
                         x=valid_tickers,
@@ -699,9 +699,10 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                         zmin=-1,
                         zmax=1,
                         colorbar=dict(
-                            title='Livello',
-                            tickvals=[-1, -0.5, 0, 0.5, 1],
-                            ticktext=['Inversa (-1)', 'Negativa', 'Nulla (0)', 'Positiva', 'Identica (+1)']
+                            title='Correlazione',
+                            tickmode='array', # Crucial for custom text
+                            tickvals=[-1, 0, 1],
+                            ticktext=['Opposta (-1)', 'Zero', 'Identica (+1)']
                         )
                     ))
                     st.plotly_chart(fig_corr, use_container_width=True)
