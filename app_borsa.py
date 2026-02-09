@@ -233,11 +233,25 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df_p.index[-365:], y=df_p['Stock_Price'].iloc[-365:], name='Storico', line=dict(color='white')))
             fig.add_trace(go.Scatter(x=dates, y=fut_p, name='Forecast AI', line=dict(color='#0055ff', width=3)))
+            fig.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',   # Sfondo esterno trasparente
+                plot_bgcolor='rgba(128,128,128,0.1)', # Sfondo griglia semitrasparente
+                font=dict(color='white'),        # Tutte le scritte in bianco
+                height=500                       # Altezza fissa
+            )
             st.plotly_chart(fig, use_container_width=True)
             
             # Tabs
             t1, t2, t3 = st.tabs(["🧠 Macro", "🔮 Monte Carlo", "🔗 Correlazioni"])
-            with t1: st.plotly_chart(go.Figure(go.Bar(x=corr.index, y=corr.values, marker_color=['red' if x<0 else 'green' for x in corr.values])), use_container_width=True)
+            with t1:
+                # 1. Creiamo la figura e la salviamo in una variabile 'fig_macro'
+                fig_macro = go.Figure(go.Bar(x=corr.index, y=corr.values, marker_color=['red' if x<0 else 'green' for x in corr.values]))
+    
+                # 2. Applichiamo lo stile SCURO (Sfondo trasparente, testo bianco)
+                fig_macro.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
+    
+                # 3. La mostriamo
+                st.plotly_chart(fig_macro, use_container_width=True)
             with t2:
                 u, v = df_l['Stock_Price'].mean(), df_l['Stock_Price'].var()
                 dr, sd = u-(0.5*v), df_l['Stock_Price'].std()
