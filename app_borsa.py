@@ -110,7 +110,7 @@ app_mode = st.sidebar.radio(
     ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v5.4\nItalian Rating UI")
+st.sidebar.info("STX Ultimate v5.5\nPass Score UI")
 
 # ==============================================================================
 # MODALITÀ 1: ANALISI SINGOLA (DEEP DIVE)
@@ -131,12 +131,15 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         try:
             clean_ticker = ticker.split('.')[0]
             
+            # 1. Lista fonti RSS
             rss_urls = [
                 f"https://news.google.com/rss/search?q={clean_ticker}+stock+market&hl=en-US&gl=US&ceid=US:en",
                 f"https://finance.yahoo.com/rss/headline?s={clean_ticker}"
             ]
             
             all_entries = []
+            
+            # 2. Scaricamento
             for url in rss_urls:
                 try:
                     feed = feedparser.parse(url)
@@ -154,6 +157,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             panic_words = ["war", "bankrupt", "fraud", "crash", "crisis", "collapse"]
             hype_words = ["soar", "record", "skyrocket", "surge", "buy", "beats"]
 
+            # 3. Analisi
             for entry in all_entries[:60]: 
                 title = entry.title
                 if title in seen_titles: continue
@@ -270,12 +274,10 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         if df_p is None:
             st.error("Dati insufficienti."); progress.empty()
         else:
-            # --- SEZIONE NEWS UI AGGIORNATA (v5.4 - Rating 0-10) ---
+            # --- SEZIONE NEWS UI (RATING 0-10 + PASS SCORE) ---
             st.markdown("##### 📰 News Sentiment Analysis")
             
-            # Calcolo conversione da -1/+1 a 0-10 per la UI
             # Formula: ((Score + 1) / 2) * 10
-            # Esempio: -1 diventa 0, 0 diventa 5, +1 diventa 10
             vote_display = ((s_score + 1) / 2) * 10
             
             if s_score > 0.2: l, c, imp = "BULLISH", "#00ff00", 1.05
@@ -286,20 +288,19 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             
             c1, c2 = st.columns([1, 2])
             
-            # Score Gigante (CONVERTITO IN 0-10)
+            # Score Gigante + Pass Score Text
             with c1: 
-                st.markdown(f"<div style='text-align:center; border:2px solid {c}; padding:10px; border-radius:10px; margin-bottom:10px;'><div style='font-size:3rem;'>{vote_display:.1f}<span style='font-size:1.5rem; color:gray;'>/10</span></div><div style='color:{c}; font-weight:bold;'>{l}</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center; border:2px solid {c}; padding:10px; border-radius:10px; margin-bottom:5px;'><div style='font-size:3rem;'>{vote_display:.1f}<span style='font-size:1.5rem; color:gray;'>/10</span></div><div style='color:{c}; font-weight:bold;'>{l}</div></div>", unsafe_allow_html=True)
+                st.markdown("<div style='text-align:center; color:gray; font-size:0.8rem;'>Pass Score: 5/10</div>", unsafe_allow_html=True)
             
-            # Lista Classificata (Ranking)
+            # Lista Classificata
             with c2:
                 if news:
                     st.caption("🔥 Top Articoli (Voto d'Impatto 0-10):")
-                    # Ordina per forza assoluta del sentiment
                     sorted_news = sorted(news, key=lambda x: abs(x['score']), reverse=True)
                     
                     with st.container(height=200):
                         for n in sorted_news:
-                            # Conversione anche per i singoli articoli
                             item_vote = ((n['score'] + 1) / 2) * 10
                             
                             if n['score'] >= 0.05: icon = "🟢"
@@ -383,7 +384,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 <br>
                 <b>Perché?</b><br>
                 1. <b>Analisi Tecnica AI:</b> Il modello ha rilevato pattern storici che suggeriscono questa direzione.<br>
-                2. <b>Analisi Fondamentale News:</b> Il sentiment attuale (Voto: {vote_display:.1f}/10) <b>{news_factor}</b> questa previsione.
+                2. <b>Analisi Fondamentale News:</b> Il sentiment attuale delle notizie (Voto: {vote_display:.1f}/10) <b>{news_factor}</b> questa previsione.
             </div>
             """, unsafe_allow_html=True)
             
