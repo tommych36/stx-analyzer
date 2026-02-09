@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS "GHOST MODE" (FIX SIDEBAR) & STILE ---
+# --- 2. CSS "GHOST MODE" & STILE ---
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
@@ -30,7 +30,6 @@ st.markdown("""
         }
 
         /* --- FIX SIDEBAR TOGGLE --- */
-        /* Nascondiamo il bottone buggato */
         [data-testid="stSidebarCollapsedControl"] {
             visibility: hidden !important;
             width: 50px !important; 
@@ -38,7 +37,6 @@ st.markdown("""
             position: relative;
         }
 
-        /* Disegniamo la freccia pulita per APRIRE */
         [data-testid="stSidebarCollapsedControl"]::after {
             content: "➤"; 
             visibility: visible !important;
@@ -52,11 +50,10 @@ st.markdown("""
         }
         
         [data-testid="stSidebarCollapsedControl"]:hover::after {
-            color: #000000; /* Nero su sfondo bianco */
+            color: #000000; 
             cursor: pointer;
         }
 
-        /* Disegniamo la freccia pulita per CHIUDERE */
         [data-testid="stSidebar"] button[kind="header"]::after {
             content: "◀"; 
             visibility: visible !important;
@@ -81,10 +78,10 @@ st.markdown("""
             color: gray; 
             margin-bottom: 30px; 
         }
-
-        /* NUOVO STILE PER I BOX ESPLICATIVI (Aggiunto per v5.1) */
+        
+        /* Box Esplicativi */
         .explanation-box {
-            background-color: #f0f2f6; /* Grigio chiarissimo standard di Streamlit */
+            background-color: #f0f2f6; 
             border-left: 5px solid #0055ff;
             padding: 15px;
             border-radius: 5px;
@@ -92,6 +89,21 @@ st.markdown("""
             margin-bottom: 25px;
             font-size: 0.95rem;
             color: #31333F;
+        }
+        
+        /* --- NUOVO STILE LISTA NEWS (v5.3) --- */
+        .news-container {
+            max-height: 300px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+        .news-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .news-meta {
+            font-size: 0.8rem;
+            color: #666;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -103,7 +115,7 @@ app_mode = st.sidebar.radio(
     ["🔎 Analisi Singola (Deep Dive)", "⚖️ Ottimizzatore Portafoglio"]
 )
 st.sidebar.markdown("---")
-st.sidebar.info("STX Ultimate v5.1\nEducational Edition")
+st.sidebar.info("STX Ultimate v5.3\nNews Ranking UI")
 
 # ==============================================================================
 # MODALITÀ 1: ANALISI SINGOLA (DEEP DIVE)
@@ -111,7 +123,7 @@ st.sidebar.info("STX Ultimate v5.1\nEducational Edition")
 if app_mode == "🔎 Analisi Singola (Deep Dive)":
     
     st.markdown('<p class="big-title">STX DEEP DIVE</p>', unsafe_allow_html=True)
-    st.markdown('<p class="subtitle">AI + Macro + Monte Carlo + Google News Sentiment</p>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">AI + Macro + Monte Carlo + Google & Yahoo News</p>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([3, 1])
     with col1: 
@@ -119,14 +131,12 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
     with col2: 
         benchmark_input = st.text_input("Benchmark", value="^GSPC").upper().strip()
 
-    # --- NEWS SENTIMENT ---
-    # --- NEWS SENTIMENT (MULTI-SOURCE) ---
+    # --- NEWS SENTIMENT (MULTI-SOURCE: Google + Yahoo) ---
     def analyze_news_sentiment(ticker):
         try:
             clean_ticker = ticker.split('.')[0]
             
-            # 1. LISTA DELLE FONTI RSS
-            # Aggiungiamo Yahoo Finance oltre a Google News
+            # 1. Lista fonti RSS
             rss_urls = [
                 f"https://news.google.com/rss/search?q={clean_ticker}+stock+market&hl=en-US&gl=US&ceid=US:en",
                 f"https://finance.yahoo.com/rss/headline?s={clean_ticker}"
@@ -134,14 +144,14 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             
             all_entries = []
             
-            # 2. SCARICAMENTO E UNIONE
+            # 2. Scaricamento da tutte le fonti
             for url in rss_urls:
                 try:
                     feed = feedparser.parse(url)
                     if feed.entries:
                         all_entries.extend(feed.entries)
                 except:
-                    continue # Se una fonte fallisce, passa alla prossima
+                    continue 
 
             if not all_entries: return 0, []
             
@@ -149,30 +159,28 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             total_score = 0
             analyzed_news = []
             
-            # Dizionario per evitare duplicati (titoli identici)
+            # Set per evitare duplicati
             seen_titles = set()
             
             panic_words = ["war", "bankrupt", "fraud", "crash", "crisis", "collapse"]
             hype_words = ["soar", "record", "skyrocket", "surge", "buy", "beats"]
 
-            # 3. ANALISI SU TUTTE LE NEWS TROVATE (LIMITATE A 60)
-            # Ordiniamo per data (se disponibile) o prendiamo le prime trovate
+            # 3. Analisi (Limitata a 60 totali)
             for entry in all_entries[:60]: 
                 title = entry.title
                 
-                # Salta se abbiamo già analizzato questo titolo (duplicato)
-                if title in seen_titles:
-                    continue
+                # Salta duplicati
+                if title in seen_titles: continue
                 seen_titles.add(title)
 
                 link = entry.link
-                # Gestione publisher più robusta
+                # Gestione Fonte
                 if 'source' in entry:
                     publisher = entry.source.title 
                 elif 'yfinance' in link or 'yahoo' in link:
                     publisher = "Yahoo Finance"
                 else:
-                    publisher = "Google News"
+                    publisher = "News Source"
                 
                 vs = analyzer.polarity_scores(title)
                 score = vs['compound']
@@ -190,11 +198,11 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 
                 analyzed_news.append({'title': title, 'link': link, 'score': score, 'color': color, 'publisher': publisher})
                 
-            # Evitiamo divisione per zero se tutte le news erano duplicate
             if not analyzed_news: return 0, []
                 
             return (total_score / len(analyzed_news) if analyzed_news else 0), analyzed_news
         except: return 0, []
+
     # --- DATA FETCHING ---
     @st.cache_data(ttl=12*3600)
     def get_single_data(ticker, benchmark_ticker):
@@ -210,7 +218,6 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             
             df.rename(columns={df.columns[0]: 'Stock_Price'}, inplace=True)
             
-            # Dati Macro
             macro_dict = {"^VIX": "Fear_Index", "GC=F": "Gold_War", "CL=F": "Oil_Energy", "^TNX": "Rates_Inflation"}
             for symbol, name in macro_dict.items():
                 try:
@@ -219,7 +226,6 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                     df[name] = m['Close']
                 except: df[name] = 0.0
             
-            # Benchmark
             if not benchmark_ticker: benchmark_ticker = "^GSPC"
             try:
                 b = yf.Ticker(benchmark_ticker).history(period="max")
@@ -276,7 +282,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         model.fit(X, y, epochs=15, batch_size=128, verbose=0)
         return model, scaler, scaled, exist
 
-    # --- ESECUZIONE ANALISI ---
+    # --- ESECUZIONE ---
     if ticker_input:
         progress = st.progress(0, "Analisi in corso...")
         s_score, news = analyze_news_sentiment(ticker_input)
@@ -285,8 +291,8 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
         if df_p is None:
             st.error("Dati insufficienti."); progress.empty()
         else:
-            # Display Sentiment
-            st.markdown("##### 📰 Google News Sentiment")
+            # --- SEZIONE NEWS UI AGGIORNATA (v5.3) ---
+            st.markdown("##### 📰 News Sentiment Analysis")
             if s_score > 0.2: l, c, imp = "BULLISH", "#00ff00", 1.05
             elif s_score > 0.05: l, c, imp = "POSITIVO", "#90ee90", 1.02
             elif s_score < -0.2: l, c, imp = "BEARISH", "#ff0000", 0.95
@@ -294,16 +300,42 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             else: l, c, imp = "NEUTRALE", "gray", 1.00
             
             c1, c2 = st.columns([1, 2])
-            with c1: st.markdown(f"<div style='text-align:center; border:2px solid {c}; padding:10px; border-radius:10px;'><div style='font-size:3rem;'>{s_score:.2f}</div><div style='color:{c}; font-weight:bold;'>{l}</div></div>", unsafe_allow_html=True)
+            
+            # Score Gigante
+            with c1: 
+                st.markdown(f"<div style='text-align:center; border:2px solid {c}; padding:10px; border-radius:10px; margin-bottom:10px;'><div style='font-size:3rem;'>{s_score:.2f}</div><div style='color:{c}; font-weight:bold;'>{l}</div></div>", unsafe_allow_html=True)
+            
+            # Lista Classificata con Scroll
             with c2:
-                if news: st.markdown(f"**Top:** [{news[0]['title']}]({news[0]['link']})"); st.caption(f"Fonte: {news[0]['publisher']}")
-                else: st.info("Nessuna news recente.")
+                if news:
+                    st.caption("🔥 Top Articoli (Ranking per Impatto):")
+                    # Ordina per "forza" del sentiment (assoluto)
+                    sorted_news = sorted(news, key=lambda x: abs(x['score']), reverse=True)
+                    
+                    with st.container(height=200):
+                        for n in sorted_news:
+                            # Icona stato
+                            if n['score'] >= 0.05: icon = "🟢"
+                            elif n['score'] <= -0.05: icon = "🔴"
+                            else: icon = "⚪"
+                            
+                            st.markdown(f"""
+                            <div class="news-item">
+                                <div>{icon} <a href="{n['link']}" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold;">{n['title']}</a></div>
+                                <div class="news-meta">
+                                    Fonte: {n['publisher']} | Impact: <b>{n['score']:.2f}</b>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                else:
+                    st.info("Nessuna news recente trovata.")
+            # -----------------------------------------
 
             # AI Training
             progress.progress(40, "AI Training...")
             model, scaler, scaled, cols = train_lstm(df_l)
             
-            # Simulation (CON FIX CRASH MATEMATICO)
+            # Simulation
             progress.progress(70, "Simulazione...")
             last_seq = scaled[-90:]
             curr = last_seq.reshape((1, 90, len(cols)))
@@ -316,7 +348,6 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 p = np.clip(p, -0.05, 0.05) * (0.99**i)
                 fut_ret.append(p)
                 
-                # --- FIX VALUE ERROR (RESHAPE) ---
                 if len(macro_trend) > 0:
                     mac = macro_trend * (0.95**i) + np.random.normal(0, 0.01, len(macro_trend))
                     new_row = np.insert(mac, 0, p)
@@ -325,7 +356,6 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 
                 new_row = new_row.reshape(1, 1, len(new_row)) 
                 curr = np.append(curr[:, 1:, :], new_row, axis=1)
-                # ---------------------------------
                 
             dummy = np.zeros((len(fut_ret), len(cols)))
             dummy[:, 0] = fut_ret
@@ -342,18 +372,17 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
             dates = [df_p.index[-1] + datetime.timedelta(days=i) for i in range(1, FD+1)]
             progress.progress(100, "Fatto."); progress.empty()
             
-            # Main Chart (Light Theme: Black Line)
+            # Main Chart
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df_p.index[-365:], y=df_p['Stock_Price'].iloc[-365:], name='Storico', line=dict(color='black', width=2)))
             fig.add_trace(go.Scatter(x=dates, y=fut_p, name='Forecast AI', line=dict(color='#0055ff', width=3)))
             st.plotly_chart(fig, use_container_width=True)
             
-            # --- AGGIUNTA v5.1: SPIEGAZIONE PREVISIONE ---
+            # --- EDUCATIONAL TEXT: PREVISIONE ---
             final_p = fut_p[-1]
             start_p = df_p['Stock_Price'].iloc[-1]
             perc_chg = ((final_p - start_p) / start_p) * 100
             
-            # Logica per il testo
             if perc_chg > 2: trend_desc = "POSITIVO (Rialzista)"
             elif perc_chg < -2: trend_desc = "NEGATIVO (Ribassista)"
             else: trend_desc = "NEUTRO (Laterale)"
@@ -370,7 +399,6 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 2. <b>Analisi Fondamentale News:</b> Il sentiment attuale delle notizie ({s_score:.2f}) <b>{news_factor}</b> questa previsione.
             </div>
             """, unsafe_allow_html=True)
-            # ---------------------------------------------
             
             # Stats text
             chg = ((fut_p[-1] - df_p['Stock_Price'].iloc[-1]) / df_p['Stock_Price'].iloc[-1])*100
@@ -385,7 +413,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 f_corr = go.Figure(go.Bar(x=corr.index, y=corr.values, marker_color=['red' if x<0 else 'green' for x in corr.values]))
                 st.plotly_chart(f_corr, use_container_width=True)
                 
-                # --- AGGIUNTA v5.1: SPIEGAZIONE MACRO ---
+                # --- EDUCATIONAL TEXT: MACRO ---
                 expl_macro = []
                 if 'Fear_Index' in corr.index:
                     rel = "INVERSA" if corr['Fear_Index'] < 0 else "DIRETTA"
@@ -399,7 +427,7 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 
                 if 'Rates_Inflation' in corr.index:
                     rel = "INVERSA" if corr['Rates_Inflation'] < 0 else "DIRETTA"
-                    meaning = "il titolo soffre l'aumento dei tassi d'interesse (costo del denaro)." if corr['Rates_Inflation'] < 0 else "il titolo beneficia dei tassi alti (es. settore bancario)."
+                    meaning = "il titolo soffre l'aumento dei tassi d'interesse." if corr['Rates_Inflation'] < 0 else "il titolo beneficia dei tassi alti (es. bancari)."
                     expl_macro.append(f"• <b>Tassi d'Interesse:</b> Relazione {rel}. {meaning}")
 
                 macro_text = "<br>".join(expl_macro)
@@ -411,10 +439,8 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                     {macro_text}
                 </div>
                 """, unsafe_allow_html=True)
-                # ----------------------------------------
             
             with t2:
-                # Monte Carlo Completo (Ripristinato)
                 u, v = df_l['Stock_Price'].mean(), df_l['Stock_Price'].var()
                 dr, sd = u-(0.5*v), df_l['Stock_Price'].std()
                 days = np.exp(dr + sd * np.random.normal(0, 1, (FD, 1000)))
@@ -424,15 +450,13 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                 fmc = go.Figure()
                 fmc.add_trace(go.Scatter(x=dates, y=np.percentile(paths, 95, axis=1), name='Best', line=dict(color='green')))
                 fmc.add_trace(go.Scatter(x=dates, y=np.percentile(paths, 5, axis=1), name='Worst', line=dict(color='red')))
-                # Mediana (Black)
                 fmc.add_trace(go.Scatter(x=dates, y=np.percentile(paths, 50, axis=1), name='Median', line=dict(color='black', dash='dot')))
                 st.plotly_chart(fmc, use_container_width=True)
                 
-                # VaR Risk (Ripristinato)
                 loss = ((df_p['Stock_Price'].iloc[-1] - np.percentile(paths, 5, axis=1)[-1]) / df_p['Stock_Price'].iloc[-1])*100
                 st.error(f"⚠️ Value at Risk (95%): Nello scenario peggiore statistico, rischio max: -{loss:.2f}%")
                 
-                # --- AGGIUNTA v5.1: SPIEGAZIONE MONTE CARLO ---
+                # --- EDUCATIONAL TEXT: MONTE CARLO ---
                 st.markdown(f"""
                 <div class="explanation-box">
                     <b>🎲 Interpretazione del Rischio (Monte Carlo):</b><br>
@@ -440,11 +464,10 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                     <ul>
                     <li><b>Linea Verde (Best Case):</b> Se tutto va benissimo (top 5% degli scenari).</li>
                     <li><b>Linea Rossa (Worst Case):</b> Se tutto va male (peggior 5% degli scenari).</li>
-                    <li><b>Value at Risk (VaR):</b> Quel numero rosso sopra indica il rischio statistico. Esempio: se è -20%, significa che c'è il 95% di probabilità che NON perderai più del 20%. È la tua "rete di sicurezza" teorica.</li>
+                    <li><b>Value at Risk (VaR):</b> Quel numero rosso sopra indica il rischio statistico. Esempio: se è -20%, significa che c'è il 95% di probabilità che NON perderai più del 20%.</li>
                     </ul>
                 </div>
                 """, unsafe_allow_html=True)
-                # ----------------------------------------------
 
             with t3:
                 try:
@@ -453,10 +476,9 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                     bd.index = pd.to_datetime(bd.index).tz_localize(None)
                     comb = pd.DataFrame({'A': df_p['Stock_Price'].pct_change(), 'B': bd['Close'].pct_change()}).dropna()
                     roll = comb['A'].rolling(60).corr(comb['B']).dropna()
-                    # Grafico standard per sfondo bianco
                     st.line_chart(roll)
                     
-                    # --- AGGIUNTA v5.1: SPIEGAZIONE CORRELAZIONI ---
+                    # --- EDUCATIONAL TEXT: CORRELAZIONI ---
                     last_c = roll.iloc[-1]
                     if last_c > 0.7: c_type = "MOLTO FORTE"
                     elif last_c > 0.3: c_type = "MODERATA"
@@ -475,7 +497,6 @@ if app_mode == "🔎 Analisi Singola (Deep Dive)":
                         Attualmente la correlazione è <b>{last_c:.2f}</b>, quindi il legame è <b>{c_type}</b>.
                     </div>
                     """, unsafe_allow_html=True)
-                    # ----------------------------------------------
                 except: st.info("No correlation.")
 
 # ==============================================================================
@@ -493,9 +514,8 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
     with c_btn: run_opt = st.button("🚀 Ottimizza", type="primary")
     with c_risk: 
         rf_rate = st.number_input("Risk-Free Rate", 0.04, step=0.01)
-        # --- AGGIUNTA v5.1: SPIEGAZIONE RISK FREE ---
+        # --- EDUCATIONAL TEXT: RISK FREE ---
         st.caption("ℹ️ Inserisci il rendimento di un titolo di stato sicuro (es. BTP o Treasury a 10 anni). Serve come base per calcolare quanto 'rischio' vale la pena correre.")
-        # --------------------------------------------
 
     def port_perf(weights, mean_ret, cov):
         ret = np.sum(mean_ret * weights) * 252
@@ -554,7 +574,7 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                     with c_hm:
                         st.plotly_chart(go.Figure(data=go.Heatmap(z=rets.corr().values, x=valid_tickers, y=valid_tickers, colorscale='RdBu', zmin=-1, zmax=1)), use_container_width=True)
                     
-                    # --- RIPRISTINO FRONTIERA EFFICIENTE ---
+                    # --- FRONTIERA EFFICIENTE ---
                     st.subheader("Frontiera Efficiente (Simulazione)")
                     n_sim = 2000
                     w_all = np.zeros((n_sim, num))
@@ -573,4 +593,3 @@ elif app_mode == "⚖️ Ottimizzatore Portafoglio":
                     ef.add_trace(go.Scatter(x=v_arr, y=r_arr, mode='markers', marker=dict(color=s_arr, colorscale='Viridis', showscale=True), name='Simulazioni'))
                     ef.add_trace(go.Scatter(x=[opt_std], y=[opt_ret], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='OTTIMO'))
                     st.plotly_chart(ef, use_container_width=True)
-                    # ---------------------------------------
